@@ -1,0 +1,74 @@
+{
+  "job_id": "redis-realtime-sync-003",
+  "job_name": "Redis Stream实时同步-事件数据",
+  "version": "1.0.0",
+  "reader": {
+    "type": "redis_stream",
+    "redis": {
+      "addr": "localhost:6379",
+      "password": "",
+      "db": 0,
+      "stream": "user-events-stream",
+      "consumer_group": "gsyncx-event-group",
+      "consumer_name": "gsyncx-consumer-1",
+      "count": 100,
+      "block": 5000000000,
+      "batch_size": 100,
+      "auto_create": true,
+      "start_id": "0"
+    }
+  },
+  "transform": {
+    "type": "redis_message",
+    "field_mapping": {
+      "user_id": "id",
+      "event_type": "type",
+      "event_data": "payload"
+    }
+  },
+  "writer": {
+    "type": "database",
+    "dsn_config": {
+      "db_type": "mysql",
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "password",
+      "schema": "event_db"
+    },
+    "table_name": "user_events",
+    "write_mode": "insert",
+    "batch_size": 200
+  },
+  "mapping": {
+    "mappings": [
+      {
+        "source_field": "id",
+        "target_field": "user_id",
+        "required": true
+      },
+      {
+        "source_field": "type",
+        "target_field": "event_type",
+        "required": true
+      },
+      {
+        "source_field": "payload",
+        "target_field": "event_data"
+      },
+      {
+        "source_field": "_stream_id",
+        "target_field": "source_id"
+      }
+    ],
+    "default_values": {
+      "processed": "false"
+    }
+  },
+  "setting": {
+    "sync_mode": "realtime",
+    "batch_size": 100,
+    "continue_on_error": true,
+    "error_threshold": 50
+  }
+}

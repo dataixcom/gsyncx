@@ -1,6 +1,7 @@
 package gsyncx
 
 import (
+	"log/slog"
 	"testing"
 )
 
@@ -49,7 +50,7 @@ func TestFuncLogger_NilFunctions(t *testing.T) {
 	logger.Debug("should not panic")
 }
 
-func TestGlogxLogger_Methods(t *testing.T) {
+func TestSlogLogger_Methods(t *testing.T) {
 	logger := NewSyncLogger()
 
 	logger.Info("test info", F("key", "value"))
@@ -58,7 +59,7 @@ func TestGlogxLogger_Methods(t *testing.T) {
 	logger.Debug("test debug", F("key", "value"))
 }
 
-func TestGlogxLogger_GetLogger(t *testing.T) {
+func TestSlogLogger_GetLogger(t *testing.T) {
 	logger := NewSyncLogger()
 	inner := logger.GetLogger()
 	if inner == nil {
@@ -66,13 +67,13 @@ func TestGlogxLogger_GetLogger(t *testing.T) {
 	}
 }
 
-func TestToGlogxArgs(t *testing.T) {
+func TestToSlogArgs(t *testing.T) {
 	fields := []LogField{
 		F("name", "test"),
 		F("age", 25),
 	}
 
-	args := toGlogxArgs(fields)
+	args := toSlogArgs(fields)
 	if len(args) != 4 {
 		t.Errorf("expected 4 args, got %d", len(args))
 	}
@@ -136,17 +137,23 @@ func TestResolveLogger(t *testing.T) {
 	}
 }
 
-func TestNewSyncLoggerWithGlogx(t *testing.T) {
-	inner := NewSyncLogger().GetLogger()
-	logger := NewSyncLoggerWithGlogx(inner)
+func TestNewSyncLoggerWithSlog(t *testing.T) {
+	inner := slog.Default()
+	logger := NewSyncLoggerWithSlog(inner)
 	if logger == nil {
 		t.Error("expected non-nil logger")
 	}
 }
 
-func TestNewSyncLoggerWithGlogx_Nil(t *testing.T) {
-	logger := NewSyncLoggerWithGlogx(nil)
+func TestNewSyncLoggerWithSlog_Nil(t *testing.T) {
+	logger := NewSyncLoggerWithSlog(nil)
 	if logger == nil {
 		t.Error("expected non-nil logger with nil input")
 	}
+}
+
+func TestSlogLogger_ProductionOutput(t *testing.T) {
+	logger := NewProductionSyncLogger()
+	logger.Info("production test", F("service", "gsyncx"))
+	logger.Error("production error", F("code", 500))
 }

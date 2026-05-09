@@ -1,0 +1,79 @@
+{
+  "job_id": "user-incremental-sync-001",
+  "job_name": "用户表增量同步(带断点续传)",
+  "version": "1.0.0",
+  "reader": {
+    "type": "database",
+    "dsn_config": {
+      "db_type": "mysql",
+      "host": "10.1.1.100",
+      "port": 33068,
+      "user": "root",
+      "password": "Dataix@2025",
+      "schema": "phoenix-dev",
+      "max_idle": 5,
+      "max_open": 20
+    },
+    "table_name": "t_sys_user",
+    "primary_key": {
+      "field_name": "id"
+    }
+  },
+  "mapping": {
+    "mappings": [
+      {
+        "source_field": "id",
+        "target_field": "id",
+        "required": true
+      },
+      {
+        "source_field": "account",
+        "target_field": "account"
+      },
+      {
+        "source_field": "nick_name",
+        "target_field": "display_name"
+      },
+      {
+        "source_field": "update_time",
+        "target_field": "last_modified"
+      }
+    ],
+    "auto_mapping": true,
+    "ignore_missing": true
+  },
+  "writer": {
+    "type": "database",
+    "dsn_config": {
+      "db_type": "mysql",
+      "host": "10.1.1.100",
+      "port": 33068,
+      "user": "root",
+      "password": "Dataix@2025",
+      "schema": "dx-test-go",
+      "max_idle": 5,
+      "max_open": 20
+    },
+    "table_name": "t_sys_user",
+    "write_mode": "upsert",
+    "primary_key": {
+      "field_name": "id"
+    },
+    "use_transaction": true,
+    "batch_size": 500
+  },
+  "setting": {
+    "sync_mode": "incremental",
+    "batch_size": 500,
+    "parallelism": 2,
+    "retry_max_attempts": 3,
+    "retry_delay": 3000000000,
+    "continue_on_error": true,
+    "integrity_check": "count",
+    "checkpoint_enabled": true,
+    "incremental_field": {
+      "field_name": "update_time",
+      "strategy": "timestamp"
+    }
+  }
+}

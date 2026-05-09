@@ -1,0 +1,97 @@
+{
+  "job_id": "mysql-full-sync-001",
+  "job_name": "MySQL全量同步-用户表",
+  "version": "1.0.0",
+  "reader": {
+    "type": "database",
+    "dsn_config": {
+      "db_type": "mysql",
+      "host": "10.1.1.100",
+      "port": 33068,
+      "user": "root",
+      "password": "DATAix@2025",
+      "schema": "phoenix-dev",
+      "max_idle": 5,
+      "max_open": 20
+    },
+    "table_name": "t_sys_user",
+    "primary_key": {
+      "field_name": "id"
+    },
+    "fields": [
+      {
+        "field_name": "id"
+      },
+      {
+        "field_name": "tid"
+      },
+      {
+        "field_name": "account"
+      },
+      {
+        "field_name": "password"
+      }
+    ],
+    "where_clause": "status = 1"
+  },
+  "writer": {
+    "type": "database",
+    "dsn_config": {
+      "db_type": "mysql",
+      "host": "10.1.1.100",
+      "port": 33068,
+      "user": "root",
+      "password": "DATAix@2025",
+      "schema": "dx-test-go",
+      "max_idle": 5,
+      "max_open": 20
+    },
+    "table_name": "t_sys_user",
+    "write_mode": "upsert",
+    "primary_key": {
+      "field_name": "id"
+    },
+    "fields": [
+      {
+        "field_name": "tid"
+      },
+      {
+        "field_name": "account"
+      },
+      {
+        "field_name": "password"
+      }
+    ]
+  },
+  "mapping": {
+    "mappings": [
+      {
+        "source_field": "id",
+        "target_field": "id"
+      },
+      {
+        "source_field": "tid",
+        "target_field": "tid"
+      },
+      {
+        "source_field": "account",
+        "target_field": "account"
+      },
+      {
+        "source_field": "password",
+        "target_field": "password"
+      }
+    ],
+    "auto_mapping": true,
+    "ignore_missing": true
+  },
+  "setting": {
+    "sync_mode": "full",
+    "batch_size": 1000,
+    "parallelism": 4,
+    "retry_max_attempts": 3,
+    "retry_delay": 5000000000,
+    "continue_on_error": true,
+    "integrity_check": "count"
+  }
+}

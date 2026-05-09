@@ -1,7 +1,8 @@
 package gsyncx
 
 import (
-	"github.com/dataixcom/glogx"
+	"log/slog"
+	"os"
 )
 
 type SyncLogger interface {
@@ -20,42 +21,48 @@ func F(key string, value interface{}) LogField {
 	return LogField{Key: key, Value: value}
 }
 
-type GlogxLogger struct {
-	logger glogx.Logger
+type SlogLogger struct {
+	logger *slog.Logger
 }
 
-func NewSyncLogger() *GlogxLogger {
-	return &GlogxLogger{logger: glogx.NewDevelopmentLogger()}
+func NewSyncLogger() *SlogLogger {
+	handler := slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelDebug,
+	})
+	return &SlogLogger{logger: slog.New(handler)}
 }
 
-func NewSyncLoggerWithGlogx(l glogx.Logger) *GlogxLogger {
+func NewSyncLoggerWithSlog(l *slog.Logger) *SlogLogger {
 	if l == nil {
-		l = glogx.NewDevelopmentLogger()
+		return NewSyncLogger()
 	}
-	return &GlogxLogger{logger: l}
+	return &SlogLogger{logger: l}
 }
 
-func NewProductionSyncLogger() *GlogxLogger {
-	return &GlogxLogger{logger: glogx.NewProductionLogger()}
+func NewProductionSyncLogger() *SlogLogger {
+	handler := slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
+		Level: slog.LevelInfo,
+	})
+	return &SlogLogger{logger: slog.New(handler)}
 }
 
-func (l *GlogxLogger) Info(msg string, fields ...LogField) {
-	l.logger.Info(msg, toGlogxArgs(fields)...)
+func (l *SlogLogger) Info(msg string, fields ...LogField) {
+	l.logger.Info(msg, toSlogArgs(fields)...)
 }
 
-func (l *GlogxLogger) Warn(msg string, fields ...LogField) {
-	l.logger.Warn(msg, toGlogxArgs(fields)...)
+func (l *SlogLogger) Warn(msg string, fields ...LogField) {
+	l.logger.Warn(msg, toSlogArgs(fields)...)
 }
 
-func (l *GlogxLogger) Error(msg string, fields ...LogField) {
-	l.logger.Error(msg, toGlogxArgs(fields)...)
+func (l *SlogLogger) Error(msg string, fields ...LogField) {
+	l.logger.Error(msg, toSlogArgs(fields)...)
 }
 
-func (l *GlogxLogger) Debug(msg string, fields ...LogField) {
-	l.logger.Debug(msg, toGlogxArgs(fields)...)
+func (l *SlogLogger) Debug(msg string, fields ...LogField) {
+	l.logger.Debug(msg, toSlogArgs(fields)...)
 }
 
-func (l *GlogxLogger) GetLogger() glogx.Logger {
+func (l *SlogLogger) GetLogger() *slog.Logger {
 	return l.logger
 }
 
@@ -112,7 +119,7 @@ func (l *FuncLogger) Debug(msg string, fields ...LogField) {
 	}
 }
 
-func toGlogxArgs(fields []LogField) []any {
+func toSlogArgs(fields []LogField) []any {
 	args := make([]any, 0, len(fields)*2)
 	for _, f := range fields {
 		args = append(args, f.Key, f.Value)

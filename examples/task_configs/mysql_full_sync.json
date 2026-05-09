@@ -1,0 +1,71 @@
+{
+  "job_id": "mysql-full-sync-001",
+  "job_name": "MySQL全量同步-用户表",
+  "version": "1.0.0",
+  "reader": {
+    "type": "database",
+    "dsn_config": {
+      "db_type": "mysql",
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "password",
+      "schema": "source_db",
+      "max_idle": 5,
+      "max_open": 20
+    },
+    "table_name": "users",
+    "primary_key": {
+      "field_name": "id"
+    },
+    "where_clause": "status = 'active'"
+  },
+  "writer": {
+    "type": "database",
+    "dsn_config": {
+      "db_type": "mysql",
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "password",
+      "schema": "target_db",
+      "max_idle": 5,
+      "max_open": 20
+    },
+    "table_name": "users",
+    "write_mode": "upsert",
+    "primary_key": {
+      "field_name": "id"
+    }
+  },
+  "mapping": {
+    "mappings": [
+      {
+        "source_field": "user_name",
+        "target_field": "name",
+        "transform": "trim"
+      },
+      {
+        "source_field": "user_email",
+        "target_field": "email",
+        "transform": "to_lower"
+      },
+      {
+        "source_field": "created_at",
+        "target_field": "sync_time",
+        "default": "NOW()"
+      }
+    ],
+    "auto_mapping": true,
+    "ignore_missing": true
+  },
+  "setting": {
+    "sync_mode": "full",
+    "batch_size": 1000,
+    "parallelism": 4,
+    "retry_max_attempts": 3,
+    "retry_delay": 5000000000,
+    "continue_on_error": true,
+    "integrity_check": "count"
+  }
+}

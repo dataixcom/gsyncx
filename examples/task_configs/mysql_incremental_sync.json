@@ -1,0 +1,78 @@
+{
+  "job_id": "mysql-incremental-sync-002",
+  "job_name": "MySQL增量同步-订单表",
+  "version": "1.0.0",
+  "reader": {
+    "type": "database",
+    "dsn_config": {
+      "db_type": "mysql",
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "password",
+      "schema": "source_db"
+    },
+    "table_name": "orders",
+    "primary_key": {
+      "field_name": "id"
+    }
+  },
+  "transform": {
+    "type": "script",
+    "script": "function transform(records)\n  for i, r in ipairs(records) do\n    r['amount'] = tostring(tonumber(r['amount'] or '0') * 100)\n  end\n  return records\nend",
+    "script_lang": "lua"
+  },
+  "writer": {
+    "type": "database",
+    "dsn_config": {
+      "db_type": "mysql",
+      "host": "localhost",
+      "port": 3306,
+      "user": "root",
+      "password": "password",
+      "schema": "target_db"
+    },
+    "table_name": "orders",
+    "write_mode": "upsert",
+    "primary_key": {
+      "field_name": "id"
+    },
+    "batch_size": 500
+  },
+  "mapping": {
+    "mappings": [
+      {
+        "source_field": "order_no",
+        "target_field": "order_number",
+        "required": true
+      },
+      {
+        "source_field": "total_amount",
+        "target_field": "amount",
+        "transform": "tostring"
+      },
+      {
+        "source_field": "order_status",
+        "target_field": "status",
+        "default": "pending"
+      }
+    ],
+    "strict_mode": true,
+    "default_values": {
+      "sync_source": "incremental"
+    }
+  },
+  "setting": {
+    "sync_mode": "incremental",
+    "batch_size": 500,
+    "retry_max_attempts": 3,
+    "retry_delay": 3000000000,
+    "checkpoint_enabled": true,
+    "checkpoint_path": "./checkpoints/orders",
+    "incremental_field": {
+      "field_name": "updated_at",
+      "strategy": "timestamp"
+    },
+    "last_sync_time": "2024-01-01T00:00:00Z"
+  }
+}
