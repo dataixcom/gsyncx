@@ -117,6 +117,7 @@ func NewSyncEngine(config *gsyncx.SyncConfig, opts ...EngineOption) (*SyncEngine
 			if err != nil {
 				return nil, fmt.Errorf("failed to create source datasource: %w", err)
 			}
+			ds.SetLogger(engine.logger)
 			engine.sourceDS = ds
 		}
 	}
@@ -128,6 +129,7 @@ func NewSyncEngine(config *gsyncx.SyncConfig, opts ...EngineOption) (*SyncEngine
 			if err != nil {
 				return nil, fmt.Errorf("failed to create target datasource: %w", err)
 			}
+			ds.SetLogger(engine.logger)
 			engine.targetDS = ds
 		}
 	}
@@ -158,11 +160,13 @@ func NewSyncEngineFromConfig(config *gsyncx.SyncConfig, logger gsyncx.SyncLogger
 	if err != nil {
 		return nil, fmt.Errorf("failed to create source datasource: %w", err)
 	}
+	sourceDS.SetLogger(logger)
 
 	targetDS, err := datasource.NewGdbxDataSource(resolveTargetDSN(config))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create target datasource: %w", err)
 	}
+	targetDS.SetLogger(logger)
 
 	var rd gsyncx.Reader
 	if config.ReaderConfig.SQL != "" {
@@ -598,16 +602,18 @@ func (e *SyncEngine) GetStats() *gsyncx.SyncStatistics {
 	return e.stats
 }
 
-func (e *SyncEngine) SetReader(r gsyncx.Reader)            { e.reader = r }
-func (e *SyncEngine) SetWriter(w gsyncx.Writer)             { e.writer = w }
-func (e *SyncEngine) SetTransformer(t gsyncx.Transformer)   { e.transformer = t }
-func (e *SyncEngine) SetMapper(m gsyncx.Mapper)             { e.mapper = m }
+func (e *SyncEngine) SetReader(r gsyncx.Reader)                       { e.reader = r }
+func (e *SyncEngine) SetWriter(w gsyncx.Writer)                       { e.writer = w }
+func (e *SyncEngine) SetTransformer(t gsyncx.Transformer)             { e.transformer = t }
+func (e *SyncEngine) SetMapper(m gsyncx.Mapper)                       { e.mapper = m }
 func (e *SyncEngine) SetCheckpointStore(store gsyncx.CheckpointStore) { e.cpStore = store }
-func (e *SyncEngine) SetSourceDS(ds *datasource.GdbxDataSource)      { e.sourceDS = ds }
-func (e *SyncEngine) SetTargetDS(ds *datasource.GdbxDataSource)      { e.targetDS = ds }
-func (e *SyncEngine) SetLogger(logger gsyncx.SyncLogger)             { e.logger = gsyncx.ResolveLogger(logger) }
+func (e *SyncEngine) SetSourceDS(ds *datasource.GdbxDataSource)       { e.sourceDS = ds }
+func (e *SyncEngine) SetTargetDS(ds *datasource.GdbxDataSource)       { e.targetDS = ds }
+func (e *SyncEngine) SetLogger(logger gsyncx.SyncLogger)              { e.logger = gsyncx.ResolveLogger(logger) }
 func (e *SyncEngine) SetErrorHandler(handler gsyncx.ErrorHandler)     { e.errorHandler = handler }
-func (e *SyncEngine) SetIntegrityChecker(checker gsyncx.IntegrityChecker) { e.integrityChecker = checker }
+func (e *SyncEngine) SetIntegrityChecker(checker gsyncx.IntegrityChecker) {
+	e.integrityChecker = checker
+}
 
 func (e *SyncEngine) AddHook(point gsyncx.HookPoint, fn gsyncx.HookFunc) {
 	e.hooks[point] = append(e.hooks[point], fn)

@@ -2,8 +2,11 @@ package gsyncx
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
+	"runtime"
+	"strings"
 	"sync"
 )
 
@@ -51,15 +54,15 @@ func F(key string, value interface{}) LogField {
 }
 
 type SlogLogger struct {
-	logger   *slog.Logger
-	handler  *dynamicHandler
+	logger    *slog.Logger
+	handler   *dynamicHandler
 	preFields []LogField
 }
 
 type dynamicHandler struct {
-	mu     sync.RWMutex
-	level  slog.Level
-	inner  slog.Handler
+	mu    sync.RWMutex
+	level slog.Level
+	inner slog.Handler
 }
 
 func newDynamicHandler(inner slog.Handler, level slog.Level) *dynamicHandler {
@@ -91,7 +94,8 @@ func (h *dynamicHandler) setLevel(level slog.Level) {
 }
 
 func NewSyncLogger() *SlogLogger {
-	dh := newDynamicHandler(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelDebug}), slog.LevelDebug)
+	opts := &slog.HandlerOptions{Level: slog.LevelDebug, AddSource: true}
+	dh := newDynamicHandler(slog.NewJSONHandler(os.Stdout, opts), slog.LevelDebug)
 	return &SlogLogger{logger: slog.New(dh), handler: dh}
 }
 
@@ -103,12 +107,14 @@ func NewSyncLoggerWithSlog(l *slog.Logger) *SlogLogger {
 }
 
 func NewProductionSyncLogger() *SlogLogger {
-	dh := newDynamicHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}), slog.LevelInfo)
+	opts := &slog.HandlerOptions{Level: slog.LevelInfo, AddSource: true}
+	dh := newDynamicHandler(slog.NewJSONHandler(os.Stdout, opts), slog.LevelInfo)
 	return &SlogLogger{logger: slog.New(dh), handler: dh}
 }
 
 func NewSyncLoggerWithLevel(level LogLevel) *SlogLogger {
-	dh := newDynamicHandler(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: level.toSlogLevel()}), level.toSlogLevel())
+	opts := &slog.HandlerOptions{Level: level.toSlogLevel(), AddSource: true}
+	dh := newDynamicHandler(slog.NewJSONHandler(os.Stdout, opts), level.toSlogLevel())
 	return &SlogLogger{logger: slog.New(dh), handler: dh}
 }
 
@@ -121,7 +127,18 @@ func (l *SlogLogger) Warn(msg string, fields ...LogField) {
 }
 
 func (l *SlogLogger) Error(msg string, fields ...LogField) {
-	l.logger.Error(msg, toSlogArgs(append(l.preFields, fields...))...)
+	allFields := append(l.preFields, fields...)
+	hasStack := false
+	for _, f := range allFields {
+		if f.Key == "stack_trace" {
+			hasStack = true
+			break
+		}
+	}
+	if !hasStack {
+		allFields = append(allFields, LogField{Key: "stack_trace", Value: captureStack(1)})
+	}
+	l.logger.Error(msg, toSlogArgs(allFields)...)
 }
 
 func (l *SlogLogger) Debug(msg string, fields ...LogField) {
@@ -171,13 +188,13 @@ func NewNopLogger() *NopLogger {
 	return &NopLogger{}
 }
 
-func (n *NopLogger) Info(string, ...LogField)                        {}
-func (n *NopLogger) Warn(string, ...LogField)                        {}
-func (n *NopLogger) Error(string, ...LogField)                       {}
-func (n *NopLogger) Debug(string, ...LogField)                       {}
-func (n *NopLogger) WithTaskID(string) SyncLogger                    { return n }
-func (n *NopLogger) WithModule(string) SyncLogger                    { return n }
-func (n *NopLogger) WithFields(...LogField) SyncLogger               { return n }
+func (n *NopLogger) Info(string, ...LogField)          {}
+func (n *NopLogger) Warn(string, ...LogField)          {}
+func (n *NopLogger) Error(string, ...LogField)         {}
+func (n *NopLogger) Debug(string, ...LogField)         {}
+func (n *NopLogger) WithTaskID(string) SyncLogger      { return n }
+func (n *NopLogger) WithModule(string) SyncLogger      { return n }
+func (n *NopLogger) WithFields(...LogField) SyncLogger { return n }
 
 type LoggerFunc func(msg string, fields ...LogField)
 
@@ -231,4 +248,61 @@ func toSlogArgs(fields []LogField) []any {
 		args = append(args, f.Key, f.Value)
 	}
 	return args
+}
+
+func captureStack(skip int) string {
+	pcs := make([]uintptr, 32)
+	n := runtime.Callers(skip+2, pcs)
+	if n == 0 {
+		return ""
+	}
+	pcs = pcs[:n]
+	frames := runtime.CallersFrames(pcs)
+	var b strings.Builder
+	for {
+		frame, more := frames.Next()
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		fmt.Fprintf(&b, "%s\n\t%s:%d", frame.Function, frame.File, frame.Line)
+		if !more {
+			break
+		}
+	}
+	return b.String()
+}
+
+var sensitiveKeys = map[string]bool{
+	"password":    true,
+	"passwd":      true,
+	"secret":      true,
+	"token":       true,
+	"api_key":     true,
+	"apikey":      true,
+	"access_key":  true,
+	"credential":  true,
+	"private_key": true,
+}
+
+func MaskSensitive(key string, value interface{}) interface{} {
+	k := strings.ToLower(key)
+	if sensitiveKeys[k] {
+		s := fmt.Sprintf("%v", value)
+		if len(s) < 2 {
+			return "***"
+		}
+		return s[:1] + "***" + s[len(s)-1:]
+	}
+	return value
+}
+
+func MaskSensitiveMap(data map[string]interface{}) map[string]interface{} {
+	if data == nil {
+		return nil
+	}
+	result := make(map[string]interface{}, len(data))
+	for k, v := range data {
+		result[k] = MaskSensitive(k, v)
+	}
+	return result
 }

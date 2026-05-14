@@ -2,7 +2,9 @@ package gsyncx
 
 import (
 	"bytes"
+	"encoding/json"
 	"log/slog"
+	"strings"
 	"testing"
 )
 
@@ -345,4 +347,237 @@ func findSubstring(s, substr string) bool {
 		}
 	}
 	return false
+}
+
+func TestSlogLogger_ErrorIncludesStackTrace(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug, AddSource: true})
+	slogger := slog.New(handler)
+	logger := NewSyncLoggerWithSlog(slogger)
+
+	logger.Error("something went wrong", F("error", "test error"))
+
+	output := buf.String()
+	if !contains(output, "stack_trace") {
+		t.Error("expected stack_trace in error log output")
+	}
+	if !contains(output, "TestSlogLogger_ErrorIncludesStackTrace") {
+		t.Error("expected current function name in stack trace")
+	}
+}
+
+func TestSlogLogger_ErrorNoDuplicateStackTrace(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug, AddSource: true})
+	slogger := slog.New(handler)
+	logger := NewSyncLoggerWithSlog(slogger)
+
+	logger.Error("test", F("stack_trace", "custom stack"))
+
+	output := buf.String()
+	if !contains(output, "custom stack") {
+		t.Error("expected custom stack_trace to be preserved")
+	}
+	idx := strings.Index(output, "stack_trace")
+	idx2 := strings.Index(output[idx+len("stack_trace"):], "stack_trace")
+	if idx2 != -1 {
+		t.Error("expected only one stack_trace field in output")
+	}
+}
+
+func TestSlogLogger_InfoDoesNotIncludeStackTrace(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug, AddSource: true})
+	slogger := slog.New(handler)
+	logger := NewSyncLoggerWithSlog(slogger)
+
+	logger.Info("normal info message")
+
+	output := buf.String()
+	if contains(output, "stack_trace") {
+		t.Error("expected no stack_trace in info log output")
+	}
+}
+
+func TestCaptureStack(t *testing.T) {
+	stack := captureStack(0)
+	if stack == "" {
+		t.Error("expected non-empty stack trace")
+	}
+	if !contains(stack, "TestCaptureStack") {
+		t.Errorf("expected TestCaptureStack in stack trace, got: %s", stack)
+	}
+}
+
+func TestCaptureStack_Skip(t *testing.T) {
+	helper := func() string {
+		return captureStack(1)
+	}
+	stack := helper()
+	if stack == "" {
+		t.Error("expected non-empty stack trace")
+	}
+	if contains(stack, "TestCaptureStack_Skip.helper") {
+		t.Error("expected helper function to be skipped in stack trace")
+	}
+}
+
+func TestMaskSensitive(t *testing.T) {
+	tests := []struct {
+		key      string
+		value    interface{}
+		expected string
+	}{
+		{"password", "secret123", "s***3"},
+		{"passwd", "abc", "a***c"},
+		{"token", "tok_12345", "t***5"},
+		{"api_key", "key_abc", "k***c"},
+		{"apikey", "mykey", "m***y"},
+		{"username", "john", "john"},
+		{"host", "localhost", "localhost"},
+		{"password", "ab", "a***b"},
+		{"password", "a", "***"},
+	}
+	for _, tt := range tests {
+		result := MaskSensitive(tt.key, tt.value)
+		resultStr, ok := result.(string)
+		if !ok {
+			t.Errorf("MaskSensitive(%q, %v) returned non-string: %T", tt.key, tt.value, result)
+			continue
+		}
+		if resultStr != tt.expected {
+			t.Errorf("MaskSensitive(%q, %v) = %q, want %q", tt.key, tt.value, resultStr, tt.expected)
+		}
+	}
+}
+
+func TestMaskSensitiveMap(t *testing.T) {
+	data := map[string]interface{}{
+		"username": "admin",
+		"password": "secret123",
+		"host":     "localhost",
+		"token":    "tok_abc",
+	}
+	result := MaskSensitiveMap(data)
+
+	if result["username"] != "admin" {
+		t.Errorf("expected username to be unmasked, got %v", result["username"])
+	}
+	if result["host"] != "localhost" {
+		t.Errorf("expected host to be unmasked, got %v", result["host"])
+	}
+	if result["password"] == "secret123" {
+		t.Error("expected password to be masked")
+	}
+	if result["token"] == "tok_abc" {
+		t.Error("expected token to be masked")
+	}
+}
+
+func TestMaskSensitiveMap_Nil(t *testing.T) {
+	result := MaskSensitiveMap(nil)
+	if result != nil {
+		t.Errorf("expected nil result for nil input, got %v", result)
+	}
+}
+
+func TestNewSyncLogger_JSONFormat(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug, AddSource: true})
+	slogger := slog.New(handler)
+	logger := NewSyncLoggerWithSlog(slogger)
+
+	logger.Info("json format test", F("key", "value"))
+
+	output := buf.String()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Errorf("output is not valid JSON: %s, error: %v", output, err)
+	}
+}
+
+func TestNewSyncLogger_SourceLocation(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug, AddSource: true})
+	slogger := slog.New(handler)
+	logger := NewSyncLoggerWithSlog(slogger)
+
+	logger.Info("source location test")
+
+	output := buf.String()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("output is not valid JSON: %s", output)
+	}
+	source, ok := parsed["source"]
+	if !ok {
+		t.Error("expected source field in JSON log output")
+	}
+	sourceMap, ok := source.(map[string]interface{})
+	if !ok {
+		t.Error("expected source to be a map")
+	}
+	if _, ok := sourceMap["function"]; !ok {
+		t.Error("expected function field in source")
+	}
+	if _, ok := sourceMap["file"]; !ok {
+		t.Error("expected file field in source")
+	}
+	if _, ok := sourceMap["line"]; !ok {
+		t.Error("expected line field in source")
+	}
+}
+
+func TestNewSyncLogger_StandardFields(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug, AddSource: true})
+	slogger := slog.New(handler)
+	logger := NewSyncLoggerWithSlog(slogger)
+
+	logger.Info("standard fields test")
+
+	output := buf.String()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Fatalf("output is not valid JSON: %s", output)
+	}
+	if _, ok := parsed["time"]; !ok {
+		t.Error("expected time field in JSON log output")
+	}
+	if _, ok := parsed["level"]; !ok {
+		t.Error("expected level field in JSON log output")
+	}
+	if _, ok := parsed["msg"]; !ok {
+		t.Error("expected msg field in JSON log output")
+	}
+}
+
+func TestNewProductionSyncLogger_JSONFormat(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelInfo, AddSource: true})
+	dh := newDynamicHandler(handler, slog.LevelInfo)
+	logger := &SlogLogger{logger: slog.New(dh), handler: dh}
+
+	logger.Info("production json test")
+
+	output := buf.String()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Errorf("production logger output is not valid JSON: %s, error: %v", output, err)
+	}
+}
+
+func TestNewSyncLoggerWithLevel_JSONFormat(t *testing.T) {
+	var buf bytes.Buffer
+	handler := slog.NewJSONHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug, AddSource: true})
+	dh := newDynamicHandler(handler, slog.LevelDebug)
+	logger := &SlogLogger{logger: slog.New(dh), handler: dh}
+
+	logger.Debug("level json test", F("key", "value"))
+
+	output := buf.String()
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(output), &parsed); err != nil {
+		t.Errorf("level logger output is not valid JSON: %s, error: %v", output, err)
+	}
 }

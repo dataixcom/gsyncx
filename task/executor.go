@@ -396,6 +396,7 @@ func (e *TaskExecutor) createDatabaseReader(cfg *TaskConfig) (gsyncx.Reader, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to create datasource: %w", err)
 	}
+	ds.SetLogger(e.logger)
 	return reader.NewDatabaseReader(ds, e.logger), nil
 }
 
@@ -407,6 +408,7 @@ func (e *TaskExecutor) createSQLReader(cfg *TaskConfig) (gsyncx.Reader, error) {
 	if err != nil {
 		return nil, fmt.Errorf("failed to create datasource: %w", err)
 	}
+	ds.SetLogger(e.logger)
 	return reader.NewSQLReader(ds, e.logger), nil
 }
 
@@ -441,6 +443,7 @@ func (e *TaskExecutor) createDatabaseWriter(cfg *TaskConfig) (gsyncx.Writer, err
 	if err != nil {
 		return nil, fmt.Errorf("failed to create datasource: %w", err)
 	}
+	ds.SetLogger(e.logger)
 	return writer.NewDatabaseWriterWithConfig(ds, cfg.Writer.ToGdbxWriterConfig(), e.logger), nil
 }
 
