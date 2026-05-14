@@ -16,7 +16,7 @@ type DatabaseReader struct {
 }
 
 func NewDatabaseReader(ds *datasource.GdbxDataSource, logger gsyncx.SyncLogger) *DatabaseReader {
-	return &DatabaseReader{ds: ds, logger: gsyncx.ResolveLogger(logger)}
+	return &DatabaseReader{ds: ds, logger: gsyncx.ResolveLogger(logger).WithModule("reader")}
 }
 
 func (r *DatabaseReader) SourceType() gsyncx.ReaderType {
@@ -43,6 +43,13 @@ func (r *DatabaseReader) Read(ctx context.Context, cfg *gsyncx.SyncConfig) (<-ch
 			batchSize = 1000
 		}
 
+		r.logger.Info("database read started",
+			gsyncx.F("table", cfg.ReaderConfig.TableName),
+			gsyncx.F("schema", cfg.ReaderConfig.Schema),
+			gsyncx.F("batch_size", batchSize),
+			gsyncx.F("sync_mode", cfg.SyncMode),
+		)
+
 		offset := 0
 		totalRead := int64(0)
 
@@ -63,6 +70,7 @@ func (r *DatabaseReader) Read(ctx context.Context, cfg *gsyncx.SyncConfig) (<-ch
 			}
 
 			if len(rows) == 0 {
+				r.logger.Info("database read completed", gsyncx.F("total_read", totalRead))
 				errCh <- nil
 				return
 			}
@@ -92,6 +100,7 @@ func (r *DatabaseReader) Read(ctx context.Context, cfg *gsyncx.SyncConfig) (<-ch
 			}
 
 			if len(rows) < batchSize {
+				r.logger.Info("database read completed", gsyncx.F("total_read", totalRead))
 				errCh <- nil
 				return
 			}
@@ -216,7 +225,7 @@ type SQLReader struct {
 }
 
 func NewSQLReader(ds *datasource.GdbxDataSource, logger gsyncx.SyncLogger) *SQLReader {
-	return &SQLReader{ds: ds, logger: gsyncx.ResolveLogger(logger)}
+	return &SQLReader{ds: ds, logger: gsyncx.ResolveLogger(logger).WithModule("reader")}
 }
 
 func (r *SQLReader) SourceType() gsyncx.ReaderType {
@@ -319,6 +328,9 @@ func (r *SQLReader) Read(ctx context.Context, cfg *gsyncx.SyncConfig) (<-chan []
 }
 
 func (r *SQLReader) Count(ctx context.Context, cfg *gsyncx.SyncConfig) (int64, error) {
+	if r.ds == nil {
+		return 0, fmt.Errorf("datasource is nil")
+	}
 	sqlStr := cfg.ReaderConfig.SQL
 	if sqlStr == "" {
 		return 0, fmt.Errorf("SQLReader requires SQL in ReaderConfig")

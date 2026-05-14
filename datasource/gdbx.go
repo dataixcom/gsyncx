@@ -42,6 +42,19 @@ func NewGdbxDataSource(dsn gsyncx.DSNConfig) (*GdbxDataSource, error) {
 	}, nil
 }
 
+func NewGdbxDataSourceWithDB(db *sql.DB, dbType gsyncx.DBType) *GdbxDataSource {
+	dsn := gsyncx.DSNConfig{DBType: dbType}
+	tmpl, _ := template.NewSQLExecutorTemplate(config.DSNConfig(dsn))
+	b := builder.NewSQLBuilder(config.DBType(dbType))
+	return &GdbxDataSource{
+		template: tmpl,
+		builder:  b,
+		db:       db,
+		dbType:   dbType,
+		dsn:      dsn,
+	}
+}
+
 func (ds *GdbxDataSource) Query(ctx context.Context, cfg gsyncx.SelectConfig) ([]map[string]interface{}, error) {
 	if ds.template == nil {
 		return nil, fmt.Errorf("datasource not initialized")

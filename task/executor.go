@@ -21,18 +21,18 @@ type TransformerFactory func(cfg *TaskConfig) (gsyncx.Transformer, error)
 type MapperFactory func(cfg *TaskConfig) (gsyncx.Mapper, error)
 
 type TaskExecutor struct {
-	config              *TaskConfig
-	logger              gsyncx.SyncLogger
-	configPath          string
-	status              TaskStatus
-	result              *TaskResult
-	mu                  sync.RWMutex
-	cancelFunc          context.CancelFunc
-	readerFactories     map[string]ReaderFactory
-	writerFactories     map[string]WriterFactory
+	config               *TaskConfig
+	logger               gsyncx.SyncLogger
+	configPath           string
+	status               TaskStatus
+	result               *TaskResult
+	mu                   sync.RWMutex
+	cancelFunc           context.CancelFunc
+	readerFactories      map[string]ReaderFactory
+	writerFactories      map[string]WriterFactory
 	transformerFactories map[string]TransformerFactory
-	mapperFactories     map[string]MapperFactory
-	hooks               map[gsyncx.HookPoint][]gsyncx.HookFunc
+	mapperFactories      map[string]MapperFactory
+	hooks                map[gsyncx.HookPoint][]gsyncx.HookFunc
 }
 
 type TaskExecutorOption func(*TaskExecutor)
@@ -69,14 +69,14 @@ func WithTaskHook(point gsyncx.HookPoint, fn gsyncx.HookFunc) TaskExecutorOption
 
 func NewTaskExecutor(cfg *TaskConfig, opts ...TaskExecutorOption) *TaskExecutor {
 	e := &TaskExecutor{
-		config:              cfg,
-		logger:              gsyncx.NewNopLogger(),
-		status:              TaskStatusPending,
-		readerFactories:     make(map[string]ReaderFactory),
-		writerFactories:     make(map[string]WriterFactory),
+		config:               cfg,
+		logger:               gsyncx.NewNopLogger(),
+		status:               TaskStatusPending,
+		readerFactories:      make(map[string]ReaderFactory),
+		writerFactories:      make(map[string]WriterFactory),
 		transformerFactories: make(map[string]TransformerFactory),
-		mapperFactories:     make(map[string]MapperFactory),
-		hooks:               make(map[gsyncx.HookPoint][]gsyncx.HookFunc),
+		mapperFactories:      make(map[string]MapperFactory),
+		hooks:                make(map[gsyncx.HookPoint][]gsyncx.HookFunc),
 	}
 
 	e.registerBuiltinFactories()
@@ -109,6 +109,8 @@ func (e *TaskExecutor) Execute(ctx context.Context) (*TaskResult, error) {
 	e.cancelFunc = cancel
 	defer cancel()
 
+	log := e.logger.WithModule("task").WithTaskID(e.config.JobID)
+
 	e.mu.Lock()
 	e.status = TaskStatusRunning
 	e.result = &TaskResult{
@@ -120,6 +122,12 @@ func (e *TaskExecutor) Execute(ctx context.Context) (*TaskResult, error) {
 	}
 	e.mu.Unlock()
 
+	log.Info("task execution started",
+		gsyncx.F("job_name", e.config.JobName),
+		gsyncx.F("reader_type", e.config.Reader.Type),
+		gsyncx.F("writer_type", e.config.Writer.Type),
+	)
+
 	defer func() {
 		e.mu.Lock()
 		e.result.EndTime = time.Now()
@@ -130,8 +138,11 @@ func (e *TaskExecutor) Execute(ctx context.Context) (*TaskResult, error) {
 	if err := e.config.Validate(); err != nil {
 		e.setStatus(TaskStatusFailed)
 		e.result.Error = err.Error()
+		log.Error("config validation failed", gsyncx.F("error", err))
 		return e.result, fmt.Errorf("config validation failed: %w", err)
 	}
+
+	log.Debug("config validation passed")
 
 	syncConfig := e.buildSyncConfig()
 
@@ -139,15 +150,19 @@ func (e *TaskExecutor) Execute(ctx context.Context) (*TaskResult, error) {
 	if err != nil {
 		e.setStatus(TaskStatusFailed)
 		e.result.Error = err.Error()
+		log.Error("failed to create reader", gsyncx.F("error", err))
 		return e.result, fmt.Errorf("failed to create reader: %w", err)
 	}
+	log.Info("reader created", gsyncx.F("type", e.config.Reader.Type))
 
 	wr, err := e.createWriter()
 	if err != nil {
 		e.setStatus(TaskStatusFailed)
 		e.result.Error = err.Error()
+		log.Error("failed to create writer", gsyncx.F("error", err))
 		return e.result, fmt.Errorf("failed to create writer: %w", err)
 	}
+	log.Info("writer created", gsyncx.F("type", e.config.Writer.Type))
 
 	engineOpts := []engine.EngineOption{
 		engine.WithReader(rd),
@@ -175,14 +190,21 @@ func (e *TaskExecutor) Execute(ctx context.Context) (*TaskResult, error) {
 	if err != nil {
 		e.setStatus(TaskStatusFailed)
 		e.result.Error = err.Error()
+		log.Error("failed to create sync engine", gsyncx.F("error", err))
 		return e.result, fmt.Errorf("failed to create sync engine: %w", err)
 	}
+
+	log.Info("sync engine created, starting execution")
 
 	syncResult, err := eng.Run(ctx)
 	if err != nil {
 		e.setStatus(TaskStatusFailed)
 		e.result.Error = err.Error()
 		e.result.SyncResult = syncResult
+		log.Error("sync execution failed",
+			gsyncx.F("error", err),
+			gsyncx.F("status", syncResult.Status),
+		)
 		return e.result, err
 	}
 
@@ -199,6 +221,14 @@ func (e *TaskExecutor) Execute(ctx context.Context) (*TaskResult, error) {
 		e.status = TaskStatusFailed
 	}
 	e.mu.Unlock()
+
+	log.Info("task execution completed",
+		gsyncx.F("status", e.result.Status),
+		gsyncx.F("total_read", syncResult.TotalRead),
+		gsyncx.F("total_written", syncResult.TotalWritten),
+		gsyncx.F("total_failed", syncResult.TotalFailed),
+		gsyncx.F("duration", e.result.Duration.String()),
+	)
 
 	return e.result, nil
 }

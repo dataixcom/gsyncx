@@ -1,0 +1,81 @@
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary, built with `go test -c`
+*.test
+
+# Output of the go coverage tool
+*.out
+coverage
+coverage.html
+
+# Dependency directories
+vendor/
+
+# Go build cache
+.cache/
+
+# Build output
+/bin/
+/dist/
+/build/
+
+# IDE - GoLand / IntelliJ IDEA
+.idea/
+
+# IDE - VS Code
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+Desktop.ini
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.crt
+
+# Log files
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+*.backup
+*.swp
+
+# Profiling output
+*.prof
+*.pprof
+cpu.prof
+mem.prof
+
+# Debug files
+debug
+__debug_bin*
+
+# Air live reload
+.air.toml
+tmp/
+
+# Task config with sensitive data
+examples/task_configs/*_local.json

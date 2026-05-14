@@ -1588,3 +1588,165 @@ func TestSyncEngine_ContextCancelledDuringProcessing(t *testing.T) {
 		t.Errorf("expected cancelled, got %s", result.Status)
 	}
 }
+
+func TestSyncEngine_WriteRetryOnFailure(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithSyncMode(gsyncx.SyncModeFull),
+		gsyncx.WithBatchSize(100),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "source"}),
+		gsyncx.WithWriterConfig(gsyncx.WriterConfig{TableName: "target", WriteMode: gsyncx.WriteModeUpsert}),
+	)
+
+	rd := &mockReader{
+		records: [][]gsyncx.Record{{{Data: map[string]interface{}{"id": 1}}}},
+		count:   1,
+	}
+	wr := &retryableMockWriter{
+		failCount:    2,
+		writeResult:  gsyncx.WriteResult{SuccessCount: 1},
+		currentFails: 0,
+	}
+
+	eng, _ := NewSyncEngine(cfg,
+		WithReader(rd),
+		WithWriter(wr),
+		WithLogger(gsyncx.NewNopLogger()),
+	)
+
+	result, err := eng.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.TotalWritten != 1 {
+		t.Errorf("expected 1 total written after retry, got %d", result.TotalWritten)
+	}
+}
+
+type retryableMockWriter struct {
+	writeResult  gsyncx.WriteResult
+	failCount    int
+	currentFails int
+}
+
+func (m *retryableMockWriter) Write(ctx context.Context, records []gsyncx.Record) (gsyncx.WriteResult, error) {
+	if m.currentFails < m.failCount {
+		m.currentFails++
+		return gsyncx.WriteResult{}, fmt.Errorf("temporary write failure (attempt %d)", m.currentFails)
+	}
+	return m.writeResult, nil
+}
+
+func (m *retryableMockWriter) WriteWithMode(ctx context.Context, records []gsyncx.Record, mode gsyncx.WriteMode) (gsyncx.WriteResult, error) {
+	return m.Write(ctx, records)
+}
+
+func (m *retryableMockWriter) Flush(ctx context.Context) error { return nil }
+func (m *retryableMockWriter) Close() error                    { return nil }
+
+func TestSyncEngine_WithFailingHook(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithSyncMode(gsyncx.SyncModeFull),
+		gsyncx.WithBatchSize(100),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "source"}),
+		gsyncx.WithWriterConfig(gsyncx.WriterConfig{TableName: "target", WriteMode: gsyncx.WriteModeUpsert}),
+	)
+
+	rd := &mockReader{
+		records: [][]gsyncx.Record{{{Data: map[string]interface{}{"id": 1}}}},
+		count:   1,
+	}
+	wr := &mockWriter{writeResult: gsyncx.WriteResult{SuccessCount: 1}}
+
+	hookFn := func(ctx context.Context, hctx *gsyncx.HookContext) error {
+		return fmt.Errorf("hook error")
+	}
+
+	eng, _ := NewSyncEngine(cfg,
+		WithReader(rd),
+		WithWriter(wr),
+		WithHook(gsyncx.HookAfterRead, hookFn),
+		WithLogger(gsyncx.NewNopLogger()),
+	)
+
+	result, err := eng.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != gsyncx.StatusCompleted {
+		t.Errorf("expected completed even with failing hook, got %s", result.Status)
+	}
+}
+
+func TestSyncEngine_WriterError(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithSyncMode(gsyncx.SyncModeFull),
+		gsyncx.WithBatchSize(100),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "source"}),
+		gsyncx.WithWriterConfig(gsyncx.WriterConfig{TableName: "target", WriteMode: gsyncx.WriteModeUpsert}),
+	)
+
+	rd := &mockReader{
+		records: [][]gsyncx.Record{{{Data: map[string]interface{}{"id": 1}}}},
+		count:   1,
+	}
+	wr := &errorMockWriter{}
+
+	eng, _ := NewSyncEngine(cfg,
+		WithReader(rd),
+		WithWriter(wr),
+		WithLogger(gsyncx.NewNopLogger()),
+	)
+
+	result, err := eng.Run(context.Background())
+	if err != nil {
+		t.Fatalf("should not return error, errors tracked in result: %v", err)
+	}
+	if result.TotalFailed != 1 {
+		t.Errorf("expected 1 failed, got %d", result.TotalFailed)
+	}
+}
+
+type errorMockWriter struct{}
+
+func (m *errorMockWriter) Write(ctx context.Context, records []gsyncx.Record) (gsyncx.WriteResult, error) {
+	return gsyncx.WriteResult{FailedCount: int64(len(records))}, fmt.Errorf("write error")
+}
+
+func (m *errorMockWriter) WriteWithMode(ctx context.Context, records []gsyncx.Record, mode gsyncx.WriteMode) (gsyncx.WriteResult, error) {
+	return m.Write(ctx, records)
+}
+
+func (m *errorMockWriter) Flush(ctx context.Context) error { return nil }
+func (m *errorMockWriter) Close() error                    { return nil }
+
+func TestSyncEngine_SetMethods(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig()
+	eng, _ := NewSyncEngine(cfg, WithLogger(gsyncx.NewNopLogger()))
+
+	eng.SetReader(&mockReader{})
+	eng.SetWriter(&mockWriter{})
+	eng.SetTransformer(transform.NewDefaultTransformer())
+	eng.SetMapper(mapping.NewFieldMappingEngine(gsyncx.MappingConfig{AutoMapping: true}, nil))
+	eng.SetCheckpointStore(checkpoint.NewMemoryCheckpointStore())
+	eng.SetSourceDS(nil)
+	eng.SetTargetDS(nil)
+	eng.SetLogger(gsyncx.NewNopLogger())
+	eng.SetErrorHandler(&testErrorHandler{})
+	eng.SetIntegrityChecker(nil)
+	eng.AddHook(gsyncx.HookAfterRead, func(ctx context.Context, hctx *gsyncx.HookContext) error { return nil })
+}
+
+func TestSyncEngine_GetMethods(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig()
+	eng, _ := NewSyncEngine(cfg, WithLogger(gsyncx.NewNopLogger()))
+
+	if eng.GetConfig() == nil {
+		t.Error("expected non-nil config")
+	}
+	if eng.GetStats() == nil {
+		t.Error("expected non-nil stats")
+	}
+	if eng.GetProgress() == nil {
+		t.Error("expected non-nil progress")
+	}
+}

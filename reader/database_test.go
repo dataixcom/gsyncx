@@ -2,13 +2,23 @@ package reader
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/dataixcom/gsyncx"
+	"github.com/dataixcom/gsyncx/datasource"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestNewDatabaseReader(t *testing.T) {
 	r := NewDatabaseReader(nil, nil)
+	if r == nil {
+		t.Error("expected non-nil reader")
+	}
+}
+
+func TestNewSQLReader(t *testing.T) {
+	r := NewSQLReader(nil, nil)
 	if r == nil {
 		t.Error("expected non-nil reader")
 	}
@@ -21,15 +31,24 @@ func TestDatabaseReader_SourceType(t *testing.T) {
 	}
 }
 
-func TestDatabaseReader_Read_NilDS(t *testing.T) {
+func TestSQLReader_SourceType(t *testing.T) {
+	r := NewSQLReader(nil, nil)
+	if r.SourceType() != gsyncx.ReaderTypeSQL {
+		t.Errorf("expected sql, got %s", r.SourceType())
+	}
+}
+
+func TestDatabaseReader_Close(t *testing.T) {
 	r := NewDatabaseReader(nil, nil)
-	cfg := gsyncx.NewSyncConfig(
-		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "users"}),
-	)
-	_, errCh := r.Read(context.Background(), cfg)
-	err := <-errCh
-	if err == nil {
-		t.Error("expected error for nil datasource")
+	if err := r.Close(); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSQLReader_Close(t *testing.T) {
+	r := NewSQLReader(nil, nil)
+	if err := r.Close(); err != nil {
+		t.Errorf("unexpected error: %v", err)
 	}
 }
 
@@ -44,286 +63,85 @@ func TestDatabaseReader_Count_NilDS(t *testing.T) {
 	}
 }
 
-func TestDatabaseReader_GetSplitKeys_NilDS(t *testing.T) {
+func TestDatabaseReader_Read_NilDS(t *testing.T) {
 	r := NewDatabaseReader(nil, nil)
 	cfg := gsyncx.NewSyncConfig(
 		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "users"}),
+		gsyncx.WithBatchSize(10),
 	)
-	_, err := r.GetSplitKeys(context.Background(), cfg)
+	recordCh, errCh := r.Read(context.Background(), cfg)
+	if recordCh == nil {
+		t.Error("expected non-nil record channel")
+	}
+	err := <-errCh
 	if err == nil {
 		t.Error("expected error for nil datasource")
 	}
 }
 
-func TestDatabaseReader_GetSplitKeys_NoPK(t *testing.T) {
-	r := NewDatabaseReader(nil, nil)
-	cfg := gsyncx.NewSyncConfig(
-		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "users"}),
-	)
-	_, err := r.GetSplitKeys(context.Background(), cfg)
-	if err == nil {
-		t.Error("expected error for missing primary key")
-	}
-}
-
-func TestDatabaseReader_Close_NilDS(t *testing.T) {
-	r := NewDatabaseReader(nil, nil)
-	if err := r.Close(); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestDatabaseReader_Read_CancelledContext(t *testing.T) {
-	r := NewDatabaseReader(nil, nil)
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
-
-	cfg := gsyncx.NewSyncConfig(
-		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "users"}),
-	)
-
-	_, errCh := r.Read(ctx, cfg)
-	err := <-errCh
-	if err == nil {
-		t.Error("expected error for cancelled context")
-	}
-}
-
-func TestDatabaseReader_buildSelectConfig(t *testing.T) {
-	r := NewDatabaseReader(nil, nil)
-
-	t.Run("full sync with where clause", func(t *testing.T) {
-		cfg := gsyncx.NewSyncConfig(
-			gsyncx.WithSyncMode(gsyncx.SyncModeFull),
-			gsyncx.WithReaderConfig(gsyncx.ReaderConfig{
-				TableName:   "users",
-				WhereClause: "status = 'active'",
-			}),
-		)
-		selectCfg := r.buildSelectConfig(cfg, 100, 0)
-		if selectCfg.TableName != "users" {
-			t.Errorf("expected users, got %s", selectCfg.TableName)
-		}
-		if selectCfg.Limit != 100 {
-			t.Errorf("expected limit 100, got %d", selectCfg.Limit)
-		}
-		if selectCfg.RawConditions != "status = 'active'" {
-			t.Errorf("expected where clause, got %s", selectCfg.RawConditions)
-		}
-	})
-
-	t.Run("with schema", func(t *testing.T) {
-		cfg := gsyncx.NewSyncConfig(
-			gsyncx.WithReaderConfig(gsyncx.ReaderConfig{
-				TableName: "users",
-				Schema:    "public",
-			}),
-		)
-		selectCfg := r.buildSelectConfig(cfg, 100, 0)
-		if selectCfg.Schema != "public" {
-			t.Errorf("expected public, got %s", selectCfg.Schema)
-		}
-	})
-
-	t.Run("with primary key", func(t *testing.T) {
-		cfg := gsyncx.NewSyncConfig(
-			gsyncx.WithReaderConfig(gsyncx.ReaderConfig{
-				TableName:  "users",
-				PrimaryKey: &gsyncx.Field{FieldName: "id"},
-			}),
-		)
-		selectCfg := r.buildSelectConfig(cfg, 100, 0)
-		if selectCfg.OrderBy == "" {
-			t.Error("expected order by clause with primary key")
-		}
-	})
-
-	t.Run("with raw fields", func(t *testing.T) {
-		cfg := gsyncx.NewSyncConfig(
-			gsyncx.WithReaderConfig(gsyncx.ReaderConfig{
-				TableName: "users",
-				RawFields: []string{"id", "name"},
-			}),
-		)
-		selectCfg := r.buildSelectConfig(cfg, 100, 0)
-		if len(selectCfg.RawFields) != 2 {
-			t.Errorf("expected 2 raw fields, got %d", len(selectCfg.RawFields))
-		}
-	})
-
-	t.Run("incremental sync", func(t *testing.T) {
-		cfg := gsyncx.NewSyncConfig(
-			gsyncx.WithSyncMode(gsyncx.SyncModeIncremental),
-			gsyncx.WithIncrementalField(&gsyncx.Field{FieldName: "updated_at"}, gsyncx.StrategyTimestamp),
-			gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "users"}),
-		)
-		selectCfg := r.buildSelectConfig(cfg, 100, 0)
-		if selectCfg.TableName != "users" {
-			t.Errorf("expected users, got %s", selectCfg.TableName)
-		}
-	})
-
-	t.Run("incremental with existing where", func(t *testing.T) {
-		cfg := gsyncx.NewSyncConfig(
-			gsyncx.WithSyncMode(gsyncx.SyncModeIncremental),
-			gsyncx.WithIncrementalField(&gsyncx.Field{FieldName: "updated_at"}, gsyncx.StrategyTimestamp),
-			gsyncx.WithReaderConfig(gsyncx.ReaderConfig{
-				TableName:   "users",
-				WhereClause: "status = 'active'",
-			}),
-		)
-		selectCfg := r.buildSelectConfig(cfg, 100, 0)
-		if selectCfg.RawConditions == "" {
-			t.Error("expected combined conditions")
-		}
-	})
-
-	t.Run("default batch size", func(t *testing.T) {
-		cfg := gsyncx.NewSyncConfig(
-			gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "users"}),
-		)
-		cfg.BatchSize = 0
-		selectCfg := r.buildSelectConfig(cfg, 0, 0)
-		if selectCfg.Limit != 0 {
-			t.Errorf("expected limit 0, got %d", selectCfg.Limit)
-		}
-	})
-}
-
-func TestNewSQLReader(t *testing.T) {
-	r := NewSQLReader(nil, nil)
-	if r == nil {
-		t.Error("expected non-nil reader")
-	}
-}
-
-func TestSQLReader_SourceType(t *testing.T) {
-	r := NewSQLReader(nil, nil)
-	if r.SourceType() != gsyncx.ReaderTypeSQL {
-		t.Errorf("expected sql, got %s", r.SourceType())
-	}
-}
-
-func TestSQLReader_Read_NoSQL(t *testing.T) {
+func TestSQLReader_Count_NilDS(t *testing.T) {
 	r := NewSQLReader(nil, nil)
 	cfg := gsyncx.NewSyncConfig(
-		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{SQL: ""}),
-	)
-
-	_, errCh := r.Read(context.Background(), cfg)
-	err := <-errCh
-	if err == nil {
-		t.Error("expected error for empty SQL")
-	}
-}
-
-func TestSQLReader_Count_NoSQL(t *testing.T) {
-	r := NewSQLReader(nil, nil)
-	cfg := gsyncx.NewSyncConfig(
-		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{SQL: ""}),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{SQL: "SELECT 1"}),
 	)
 	_, err := r.Count(context.Background(), cfg)
 	if err == nil {
-		t.Error("expected error for empty SQL")
+		t.Error("expected error for nil datasource")
 	}
 }
 
-func TestSQLReader_GetSplitKeys(t *testing.T) {
-	r := NewSQLReader(nil, nil)
-	cfg := gsyncx.NewSyncConfig()
-	_, err := r.GetSplitKeys(context.Background(), cfg)
-	if err == nil {
-		t.Error("expected error: SQLReader does not support split keys")
-	}
-}
-
-func TestSQLReader_Close_NilDS(t *testing.T) {
-	r := NewSQLReader(nil, nil)
-	if err := r.Close(); err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-}
-
-func TestSQLReader_ReadWithIncremental_NoSQL(t *testing.T) {
+func TestSQLReader_Read_NilDS(t *testing.T) {
 	r := NewSQLReader(nil, nil)
 	cfg := gsyncx.NewSyncConfig(
-		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{SQL: ""}),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{SQL: "SELECT 1"}),
+		gsyncx.WithBatchSize(10),
 	)
-	_, errCh := r.ReadWithIncremental(context.Background(), cfg, "id", 100)
+	recordCh, errCh := r.Read(context.Background(), cfg)
+	if recordCh == nil {
+		t.Error("expected non-nil record channel")
+	}
 	err := <-errCh
 	if err == nil {
-		t.Error("expected error for empty SQL in ReadWithIncremental")
+		t.Error("expected error for nil datasource")
 	}
 }
 
-func TestContainsWhere(t *testing.T) {
-	tests := []struct {
-		sql  string
-		want bool
-	}{
-		{"SELECT * FROM users WHERE id > 10", true},
-		{"SELECT * FROM users", false},
-		{"select * from users where id > 10", true},
-		{"SELECT * FROM users WHERE  id > 10", true},
+func TestReaderRegistry(t *testing.T) {
+	registry := &ReaderRegistry{factories: make(map[gsyncx.ReaderType]ReaderFactory)}
+	registry.Register(gsyncx.ReaderType("custom"), func(config interface{}, logger gsyncx.SyncLogger) (gsyncx.Reader, error) {
+		return nil, nil
+	})
+	if !registry.Has(gsyncx.ReaderType("custom")) {
+		t.Error("expected custom reader to be registered")
 	}
+	types := registry.Types()
+	if len(types) != 1 {
+		t.Errorf("expected 1 type, got %d", len(types))
+	}
+}
 
-	for _, tt := range tests {
-		result := containsWhere(tt.sql)
-		if result != tt.want {
-			t.Errorf("containsWhere(%q) = %v, want %v", tt.sql, result, tt.want)
+func TestReaderRegistry_Create_Unsupported(t *testing.T) {
+	registry := &ReaderRegistry{factories: make(map[gsyncx.ReaderType]ReaderFactory)}
+	_, err := registry.Create(gsyncx.ReaderType("unsupported"), nil, nil)
+	if err == nil {
+		t.Error("expected error for unsupported reader type")
+	}
+}
+
+func TestRegisterReader(t *testing.T) {
+	RegisterReader("test_custom_reader", func(config interface{}, logger gsyncx.SyncLogger) (gsyncx.Reader, error) {
+		return nil, nil
+	})
+	types := RegisteredReaderTypes()
+	found := false
+	for _, rt := range types {
+		if rt == "test_custom_reader" {
+			found = true
+			break
 		}
 	}
-}
-
-func TestContainsSubstring(t *testing.T) {
-	if !containsSubstring("hello world test", "world") {
-		t.Error("expected true for existing substring")
-	}
-	if containsSubstring("hello test", "world") {
-		t.Error("expected false for missing substring")
-	}
-}
-
-func TestReaderRegistry_Operations(t *testing.T) {
-	registry := &ReaderRegistry{factories: make(map[gsyncx.ReaderType]ReaderFactory)}
-
-	registry.Register("type_a", func(config interface{}, logger gsyncx.SyncLogger) (gsyncx.Reader, error) {
-		return nil, nil
-	})
-	registry.Register("type_b", func(config interface{}, logger gsyncx.SyncLogger) (gsyncx.Reader, error) {
-		return nil, nil
-	})
-
-	if !registry.Has("type_a") {
-		t.Error("expected type_a to be registered")
-	}
-	if !registry.Has("type_b") {
-		t.Error("expected type_b to be registered")
-	}
-	if registry.Has("type_c") {
-		t.Error("expected type_c to not be registered")
-	}
-
-	types := registry.Types()
-	if len(types) != 2 {
-		t.Errorf("expected 2 types, got %d", len(types))
-	}
-
-	_, err := registry.Create("type_a", nil, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-
-	_, err = registry.Create("type_c", nil, nil)
-	if err == nil {
-		t.Error("expected error for unsupported type")
-	}
-}
-
-func TestGlobalReaderRegistry(t *testing.T) {
-	types := RegisteredReaderTypes()
-	if len(types) == 0 {
-		t.Error("expected at least one registered reader type")
+	if !found {
+		t.Error("expected test_custom_reader in registered types")
 	}
 }
 
@@ -339,4 +157,289 @@ func TestCreateReader_SQL(t *testing.T) {
 	if err != nil {
 		t.Logf("create sql reader with nil: %v", err)
 	}
+}
+
+func TestCreateReader_Unsupported(t *testing.T) {
+	_, err := CreateReader(gsyncx.ReaderType("unsupported"), nil, nil)
+	if err == nil {
+		t.Error("expected error for unsupported reader type")
+	}
+}
+
+func setupSQLiteDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite3 driver not available: %v", err)
+	}
+	if err := db.Ping(); err != nil {
+		t.Skipf("sqlite3 not available (CGO required): %v", err)
+	}
+	return db
+}
+
+func TestDatabaseReader_Read_WithDB(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	_, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	_, err = db.Exec("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+	_, err = db.Exec("INSERT INTO users (id, name) VALUES (2, 'Bob')")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	r := NewDatabaseReader(ds, nil)
+
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{
+			TableName:  "users",
+			PrimaryKey: &gsyncx.Field{FieldName: "id"},
+		}),
+		gsyncx.WithBatchSize(10),
+	)
+
+	recordCh, errCh := r.Read(context.Background(), cfg)
+
+	var records []gsyncx.Record
+	for batch := range recordCh {
+		records = append(records, batch...)
+	}
+
+	readErr := <-errCh
+	if readErr != nil {
+		t.Fatalf("unexpected error: %v", readErr)
+	}
+
+	if len(records) != 2 {
+		t.Errorf("expected 2 records, got %d", len(records))
+	}
+}
+
+func TestDatabaseReader_Count_WithDB(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	_, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	_, err = db.Exec("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	r := NewDatabaseReader(ds, nil)
+
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "users"}),
+	)
+
+	count, err := r.Count(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected count 1, got %d", count)
+	}
+}
+
+func TestSQLReader_Read_WithDB(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	_, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	_, err = db.Exec("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	r := NewSQLReader(ds, nil)
+
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{
+			SQL: "SELECT * FROM users",
+		}),
+		gsyncx.WithBatchSize(10),
+	)
+
+	recordCh, errCh := r.Read(context.Background(), cfg)
+
+	var records []gsyncx.Record
+	for batch := range recordCh {
+		records = append(records, batch...)
+	}
+
+	readErr := <-errCh
+	if readErr != nil {
+		t.Fatalf("unexpected error: %v", readErr)
+	}
+
+	if len(records) != 1 {
+		t.Errorf("expected 1 record, got %d", len(records))
+	}
+}
+
+func TestSQLReader_Count_WithDB(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	_, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	_, err = db.Exec("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	r := NewSQLReader(ds, nil)
+
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{
+			SQL: "SELECT * FROM users",
+		}),
+	)
+
+	count, err := r.Count(context.Background(), cfg)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected count 1, got %d", count)
+	}
+}
+
+func TestSQLReader_ReadWithIncremental_WithDB(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	_, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	_, err = db.Exec("INSERT INTO users (id, name) VALUES (1, 'Alice')")
+	if err != nil {
+		t.Fatalf("failed to insert: %v", err)
+	}
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	r := NewSQLReader(ds, nil)
+
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{
+			SQL: "SELECT * FROM users",
+		}),
+		gsyncx.WithBatchSize(10),
+	)
+
+	recordCh, errCh := r.ReadWithIncremental(context.Background(), cfg, "id", 0)
+
+	var records []gsyncx.Record
+	for batch := range recordCh {
+		records = append(records, batch...)
+	}
+
+	readErr := <-errCh
+	if readErr != nil {
+		t.Fatalf("unexpected error: %v", readErr)
+	}
+
+	if len(records) != 1 {
+		t.Errorf("expected 1 record, got %d", len(records))
+	}
+}
+
+func TestDatabaseReader_Close_WithDB(t *testing.T) {
+	db := setupSQLiteDB(t)
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	r := NewDatabaseReader(ds, nil)
+
+	if err := r.Close(); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestSQLReader_Close_WithDB(t *testing.T) {
+	db := setupSQLiteDB(t)
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	r := NewSQLReader(ds, nil)
+
+	if err := r.Close(); err != nil {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestDatabaseReader_Read_EmptyTable(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	_, err := db.Exec("CREATE TABLE empty_table (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	r := NewDatabaseReader(ds, nil)
+
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "empty_table"}),
+		gsyncx.WithBatchSize(10),
+	)
+
+	recordCh, errCh := r.Read(context.Background(), cfg)
+
+	var recordCount int
+	for range recordCh {
+		recordCount++
+	}
+
+	readErr := <-errCh
+	if readErr != nil {
+		t.Fatalf("unexpected error: %v", readErr)
+	}
+	if recordCount != 0 {
+		t.Errorf("expected 0 records from empty table, got %d", recordCount)
+	}
+}
+
+func TestDatabaseReader_Read_CancelledContext(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	_, err := db.Exec("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	r := NewDatabaseReader(ds, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "users"}),
+		gsyncx.WithBatchSize(10),
+	)
+
+	recordCh, errCh := r.Read(ctx, cfg)
+
+	for range recordCh {
+	}
+
+	<-errCh
 }

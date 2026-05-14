@@ -16,11 +16,11 @@ type DatabaseWriter struct {
 }
 
 func NewDatabaseWriter(ds *datasource.GdbxDataSource, logger gsyncx.SyncLogger) *DatabaseWriter {
-	return &DatabaseWriter{ds: ds, logger: gsyncx.ResolveLogger(logger)}
+	return &DatabaseWriter{ds: ds, logger: gsyncx.ResolveLogger(logger).WithModule("writer")}
 }
 
 func NewDatabaseWriterWithConfig(ds *datasource.GdbxDataSource, cfg gsyncx.WriterConfig, logger gsyncx.SyncLogger) *DatabaseWriter {
-	return &DatabaseWriter{ds: ds, cfg: cfg, logger: gsyncx.ResolveLogger(logger)}
+	return &DatabaseWriter{ds: ds, cfg: cfg, logger: gsyncx.ResolveLogger(logger).WithModule("writer")}
 }
 
 func (w *DatabaseWriter) SetConfig(cfg gsyncx.WriterConfig) {
@@ -50,6 +50,12 @@ func (w *DatabaseWriter) WriteWithMode(ctx context.Context, records []gsyncx.Rec
 	if w.ds == nil {
 		return gsyncx.WriteResult{FailedCount: int64(len(records))}, fmt.Errorf("datasource is nil")
 	}
+
+	w.logger.Debug("write started",
+		gsyncx.F("mode", mode),
+		gsyncx.F("table", w.cfg.TableName),
+		gsyncx.F("record_count", len(records)),
+	)
 
 	result := gsyncx.WriteResult{}
 
@@ -112,10 +118,16 @@ func (w *DatabaseWriter) batchInsert(ctx context.Context, records []gsyncx.Recor
 
 	affected, err := w.ds.BatchInsert(ctx, cfg)
 	if err != nil {
+		w.logger.Error("batch insert failed",
+			gsyncx.F("table", w.cfg.TableName),
+			gsyncx.F("error", err),
+			gsyncx.F("record_count", len(records)),
+		)
 		return 0, err
 	}
 
-	w.logger.Debug("batch insert completed",
+	w.logger.Info("batch insert completed",
+		gsyncx.F("table", w.cfg.TableName),
 		gsyncx.F("affected", affected),
 		gsyncx.F("records", len(records)),
 	)
@@ -145,10 +157,16 @@ func (w *DatabaseWriter) batchUpsert(ctx context.Context, records []gsyncx.Recor
 
 	affected, err := w.ds.BatchUpsert(ctx, cfg)
 	if err != nil {
+		w.logger.Error("batch upsert failed",
+			gsyncx.F("table", w.cfg.TableName),
+			gsyncx.F("error", err),
+			gsyncx.F("record_count", len(records)),
+		)
 		return 0, err
 	}
 
-	w.logger.Debug("batch upsert completed",
+	w.logger.Info("batch upsert completed",
+		gsyncx.F("table", w.cfg.TableName),
 		gsyncx.F("affected", affected),
 		gsyncx.F("records", len(records)),
 	)
@@ -172,7 +190,7 @@ func NewBatchWriter(ds *datasource.GdbxDataSource, batchSize int, logger gsyncx.
 		ds:        ds,
 		batchSize: batchSize,
 		buffer:    make([]gsyncx.Record, 0, batchSize),
-		logger:    gsyncx.ResolveLogger(logger),
+		logger:    gsyncx.ResolveLogger(logger).WithModule("writer"),
 	}
 }
 
@@ -185,7 +203,7 @@ func NewBatchWriterWithConfig(ds *datasource.GdbxDataSource, cfg gsyncx.WriterCo
 		cfg:       cfg,
 		batchSize: batchSize,
 		buffer:    make([]gsyncx.Record, 0, batchSize),
-		logger:    gsyncx.ResolveLogger(logger),
+		logger:    gsyncx.ResolveLogger(logger).WithModule("writer"),
 	}
 }
 

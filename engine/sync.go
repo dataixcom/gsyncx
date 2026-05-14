@@ -240,14 +240,27 @@ func (e *SyncEngine) Run(ctx context.Context) (*gsyncx.SyncResult, error) {
 	e.progress.StartTime = time.Now()
 	e.mu.Unlock()
 
+	log := e.logger.WithModule("engine")
+
+	log.Info("sync task started",
+		gsyncx.F("sync_mode", e.config.SyncMode),
+		gsyncx.F("source_table", e.config.ReaderConfig.TableName),
+		gsyncx.F("target_table", e.config.WriterConfig.TableName),
+		gsyncx.F("batch_size", e.config.BatchSize),
+		gsyncx.F("checkpoint_enabled", e.config.CheckpointEnabled),
+		gsyncx.F("preview_mode", e.config.PreviewMode),
+	)
+
 	result := &gsyncx.SyncResult{
 		StartTime: time.Now(),
 	}
 
 	if e.reader == nil {
+		log.Error("reader is not configured")
 		return nil, fmt.Errorf("reader is not configured")
 	}
 	if e.writer == nil {
+		log.Error("writer is not configured")
 		return nil, fmt.Errorf("writer is not configured")
 	}
 
@@ -257,14 +270,17 @@ func (e *SyncEngine) Run(ctx context.Context) (*gsyncx.SyncResult, error) {
 
 	totalCount, err := e.reader.Count(ctx, e.config)
 	if err != nil {
-		e.logger.Warn("failed to get total count", gsyncx.F("error", err))
+		log.Warn("failed to get total count", gsyncx.F("error", err))
 	} else {
 		e.mu.Lock()
 		e.progress.TotalRecords = totalCount
 		e.mu.Unlock()
+		log.Info("total records counted", gsyncx.F("total", totalCount))
 	}
 
 	recordCh, errCh := e.reader.Read(ctx, e.config)
+
+	log.Info("reader started", gsyncx.F("source_table", e.config.ReaderConfig.TableName))
 
 	var totalRead, totalWrite, totalFailed, totalSkipped int64
 
@@ -293,6 +309,11 @@ loop:
 			totalRead += int64(len(batch))
 			e.stats.IncReadOK(int64(len(batch)))
 
+			log.Debug("batch read completed",
+				gsyncx.F("batch_size", len(batch)),
+				gsyncx.F("total_read", totalRead),
+			)
+
 			e.fireHooks(ctx, gsyncx.HookAfterRead, batch)
 
 			if e.config.PreviewMode && len(result.PreviewData) < e.config.PreviewLimit {
@@ -310,15 +331,21 @@ loop:
 			var transformFailed []gsyncx.FailedRecord
 			if e.transformer != nil {
 				e.fireHooks(ctx, gsyncx.HookBeforeTransform, batch)
+				inputCount := len(batch)
 				var transformed []gsyncx.Record
 				transformed, transformFailed, err = e.transformer.Transform(ctx, batch)
 				if err != nil {
-					e.logger.Warn("transform failed",
+					log.Warn("transform failed",
 						gsyncx.F("error", err),
-						gsyncx.F("batch_size", len(batch)),
+						gsyncx.F("batch_size", inputCount),
 					)
 				} else {
 					batch = transformed
+					log.Debug("transform completed",
+						gsyncx.F("input_count", inputCount),
+						gsyncx.F("output_count", len(batch)),
+						gsyncx.F("failed_count", len(transformFailed)),
+					)
 				}
 				e.fireHooks(ctx, gsyncx.HookAfterTransform, batch)
 			}
@@ -334,14 +361,20 @@ loop:
 			var mapFailed []gsyncx.FailedRecord
 			if e.mapper != nil {
 				e.fireHooks(ctx, gsyncx.HookBeforeMap, batch)
+				inputCount := len(batch)
 				var mapped []gsyncx.Record
 				mapped, mapFailed, err = e.mapper.Map(batch)
 				if err != nil {
-					e.logger.Warn("mapping failed",
+					log.Warn("mapping failed",
 						gsyncx.F("error", err),
 					)
 				} else {
 					batch = mapped
+					log.Debug("mapping completed",
+						gsyncx.F("input_count", inputCount),
+						gsyncx.F("output_count", len(batch)),
+						gsyncx.F("failed_count", len(mapFailed)),
+					)
 				}
 				e.fireHooks(ctx, gsyncx.HookAfterMap, batch)
 			}
@@ -364,7 +397,7 @@ loop:
 				if writeErr != nil {
 					totalFailed += int64(len(batch))
 					e.stats.IncWriteFailed(int64(len(batch)))
-					e.logger.Warn("write failed",
+					log.Warn("write failed",
 						gsyncx.F("error", writeErr),
 						gsyncx.F("batch_size", len(batch)),
 					)
@@ -374,6 +407,11 @@ loop:
 					totalSkipped += writeResult.SkippedCount
 					e.stats.IncWriteOK(writeResult.SuccessCount)
 					e.stats.IncWriteFailed(writeResult.FailedCount)
+					log.Debug("write completed",
+						gsyncx.F("success_count", writeResult.SuccessCount),
+						gsyncx.F("failed_count", writeResult.FailedCount),
+						gsyncx.F("total_written", totalWrite),
+					)
 				}
 
 				e.fireHooks(ctx, gsyncx.HookAfterWrite, batch)
@@ -422,20 +460,29 @@ loop:
 	result.EndTime = time.Now()
 	result.Duration = result.EndTime.Sub(result.StartTime)
 
+	log.Info("sync task completed",
+		gsyncx.F("status", result.Status),
+		gsyncx.F("total_read", totalRead),
+		gsyncx.F("total_written", totalWrite),
+		gsyncx.F("total_failed", totalFailed),
+		gsyncx.F("total_skipped", totalSkipped),
+		gsyncx.F("duration", result.Duration.String()),
+	)
+
 	if e.config.IntegrityCheck != "" && e.config.IntegrityCheck != gsyncx.IntegrityCheckNone {
 		if e.integrityChecker != nil {
 			ir, err := e.integrityChecker.Check(ctx, e.config)
 			if err != nil {
-				e.logger.Warn("integrity check failed", gsyncx.F("error", err))
+				log.Warn("integrity check failed", gsyncx.F("error", err))
 			} else {
 				result.IntegrityResult = ir
 				if !ir.Passed {
-					e.logger.Warn("integrity check did not pass",
+					log.Warn("integrity check did not pass",
 						gsyncx.F("mode", ir.Mode),
 						gsyncx.F("details", ir.Details),
 					)
 				} else {
-					e.logger.Info("integrity check passed",
+					log.Info("integrity check passed",
 						gsyncx.F("mode", ir.Mode),
 					)
 				}
@@ -506,7 +553,7 @@ func (e *SyncEngine) fireHooks(ctx context.Context, point gsyncx.HookPoint, reco
 
 	for _, fn := range hooks {
 		if err := fn(ctx, hctx); err != nil {
-			e.logger.Warn("hook execution failed",
+			e.logger.WithModule("engine").Warn("hook execution failed",
 				gsyncx.F("hook_point", point),
 				gsyncx.F("error", err),
 			)
@@ -568,12 +615,12 @@ func (e *SyncEngine) AddHook(point gsyncx.HookPoint, fn gsyncx.HookFunc) {
 
 func (e *SyncEngine) SwitchToFullSync() {
 	e.config.SwitchToFullSync()
-	e.logger.Info("switched to full sync mode")
+	e.logger.WithModule("engine").Info("switched to full sync mode")
 }
 
 func (e *SyncEngine) SwitchToIncrementalSync(field *gsyncx.Field, strategy gsyncx.IncrementalStrategy) {
 	e.config.SwitchToIncrementalSync(field, strategy)
-	e.logger.Info("switched to incremental sync mode",
+	e.logger.WithModule("engine").Info("switched to incremental sync mode",
 		gsyncx.F("field", field.GetFieldName()),
 		gsyncx.F("strategy", strategy),
 	)
@@ -581,7 +628,7 @@ func (e *SyncEngine) SwitchToIncrementalSync(field *gsyncx.Field, strategy gsync
 
 func (e *SyncEngine) SwitchToRealtimeSync() {
 	e.config.SwitchToRealtimeSync()
-	e.logger.Info("switched to realtime sync mode")
+	e.logger.WithModule("engine").Info("switched to realtime sync mode")
 }
 
 func resolveSourceDSN(config *gsyncx.SyncConfig) gsyncx.DSNConfig {
@@ -629,14 +676,14 @@ func (e *SyncEngine) saveCheckpoint(ctx context.Context, totalRead, totalWrite i
 	}
 
 	if err := e.cpStore.Save(ctx, cp); err != nil {
-		e.logger.Warn("failed to save checkpoint",
+		e.logger.WithModule("engine").Warn("failed to save checkpoint",
 			gsyncx.F("table", tableName),
 			gsyncx.F("error", err),
 		)
 	}
 
 	if err := e.cpStore.SaveProgress(ctx, e.progress); err != nil {
-		e.logger.Warn("failed to save progress",
+		e.logger.WithModule("engine").Warn("failed to save progress",
 			gsyncx.F("error", err),
 		)
 	}

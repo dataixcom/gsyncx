@@ -2,10 +2,12 @@ package writer
 
 import (
 	"context"
+	"database/sql"
 	"testing"
 
 	"github.com/dataixcom/gsyncx"
 	"github.com/dataixcom/gsyncx/datasource"
+	_ "github.com/mattn/go-sqlite3"
 )
 
 func TestNewDatabaseWriter(t *testing.T) {
@@ -459,7 +461,7 @@ func TestCreateWriter_DatabaseWriterConfig(t *testing.T) {
 }
 
 func TestCreateWriter_DatabaseWriterWithDSOnly(t *testing.T) {
-	wr, err := CreateWriter(gsyncx.WriterTypeDatabase, &datasource.GdbxDataSource{}, nil)
+	wr, err := CreateWriter(gsyncx.WriterTypeDatabase, datasource.NewGdbxDataSourceWithDB(nil, gsyncx.DBMySQL), nil)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -556,5 +558,211 @@ func TestBatchWriterWithConfig_ConfigPropagated(t *testing.T) {
 	}
 	if w.cfg.PrimaryKey == nil || w.cfg.PrimaryKey.FieldName != "sku" {
 		t.Error("expected primary key 'sku'")
+	}
+}
+
+func setupSQLiteDB(t *testing.T) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite3", ":memory:")
+	if err != nil {
+		t.Skipf("sqlite3 driver not available: %v", err)
+	}
+	if err := db.Ping(); err != nil {
+		t.Skipf("sqlite3 not available (CGO required): %v", err)
+	}
+	_, err = db.Exec("CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY, name TEXT, email TEXT)")
+	if err != nil {
+		t.Fatalf("failed to create table: %v", err)
+	}
+	return db
+}
+
+func TestDatabaseWriter_BatchInsert_WithDB(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	cfg := gsyncx.WriterConfig{
+		TableName: "users",
+		WriteMode: gsyncx.WriteModeInsert,
+		Fields:    []gsyncx.Field{{FieldName: "id"}, {FieldName: "name"}, {FieldName: "email"}},
+	}
+	w := NewDatabaseWriterWithConfig(ds, cfg, nil)
+
+	records := []gsyncx.Record{
+		{Data: map[string]interface{}{"id": 1, "name": "Alice", "email": "alice@example.com"}},
+		{Data: map[string]interface{}{"id": 2, "name": "Bob", "email": "bob@example.com"}},
+	}
+
+	result, err := w.WriteWithMode(context.Background(), records, gsyncx.WriteModeInsert)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.SuccessCount != 2 {
+		t.Errorf("expected 2 success, got %d", result.SuccessCount)
+	}
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 rows in db, got %d", count)
+	}
+}
+
+func TestDatabaseWriter_BatchUpsert_WithDB(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	_, err := db.Exec("INSERT INTO users (id, name, email) VALUES (1, 'Old', 'old@example.com')")
+	if err != nil {
+		t.Fatalf("failed to insert initial data: %v", err)
+	}
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	cfg := gsyncx.WriterConfig{
+		TableName:  "users",
+		WriteMode:  gsyncx.WriteModeUpsert,
+		PrimaryKey: &gsyncx.Field{FieldName: "id"},
+		Fields:     []gsyncx.Field{{FieldName: "id"}, {FieldName: "name"}, {FieldName: "email"}},
+	}
+	w := NewDatabaseWriterWithConfig(ds, cfg, nil)
+
+	records := []gsyncx.Record{
+		{Data: map[string]interface{}{"id": 1, "name": "Updated", "email": "updated@example.com"}},
+		{Data: map[string]interface{}{"id": 2, "name": "New", "email": "new@example.com"}},
+	}
+
+	result, err := w.Write(context.Background(), records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.SuccessCount < 1 {
+		t.Errorf("expected at least 1 success, got %d", result.SuccessCount)
+	}
+}
+
+func TestDatabaseWriter_Write_UsesConfigWriteMode(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	cfg := gsyncx.WriterConfig{
+		TableName: "users",
+		WriteMode: gsyncx.WriteModeInsert,
+		Fields:    []gsyncx.Field{{FieldName: "id"}, {FieldName: "name"}, {FieldName: "email"}},
+	}
+	w := NewDatabaseWriterWithConfig(ds, cfg, nil)
+
+	records := []gsyncx.Record{
+		{Data: map[string]interface{}{"id": 1, "name": "Test", "email": "test@example.com"}},
+	}
+
+	result, err := w.Write(context.Background(), records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.SuccessCount != 1 {
+		t.Errorf("expected 1 success, got %d", result.SuccessCount)
+	}
+}
+
+func TestBatchWriter_Flush_WithDB(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	cfg := gsyncx.WriterConfig{
+		TableName: "users",
+		WriteMode: gsyncx.WriteModeInsert,
+		Fields:    []gsyncx.Field{{FieldName: "id"}, {FieldName: "name"}, {FieldName: "email"}},
+	}
+	w := NewBatchWriterWithConfig(ds, cfg, 100, nil)
+
+	records := []gsyncx.Record{
+		{Data: map[string]interface{}{"id": 1, "name": "Alice", "email": "alice@example.com"}},
+	}
+
+	_, err := w.Write(context.Background(), records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = w.Flush(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error on flush: %v", err)
+	}
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 row after flush, got %d", count)
+	}
+}
+
+func TestBatchWriter_Close_FlushesBuffer(t *testing.T) {
+	db := setupSQLiteDB(t)
+	defer db.Close()
+
+	ds := datasource.NewGdbxDataSourceWithDB(db, gsyncx.DBMySQL)
+	cfg := gsyncx.WriterConfig{
+		TableName: "users",
+		WriteMode: gsyncx.WriteModeInsert,
+		Fields:    []gsyncx.Field{{FieldName: "id"}, {FieldName: "name"}, {FieldName: "email"}},
+	}
+	w := NewBatchWriterWithConfig(ds, cfg, 100, nil)
+
+	records := []gsyncx.Record{
+		{Data: map[string]interface{}{"id": 1, "name": "Alice", "email": "alice@example.com"}},
+	}
+
+	_, err := w.Write(context.Background(), records)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	err = w.Close()
+	if err != nil {
+		t.Fatalf("unexpected error on close: %v", err)
+	}
+
+	var count int
+	err = db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 row after close, got %d", count)
+	}
+}
+
+func TestDatabaseWriter_WriteWithMode_UnsupportedMode(t *testing.T) {
+	w := NewDatabaseWriter(nil, nil)
+	records := []gsyncx.Record{
+		{Data: map[string]interface{}{"id": 1}},
+	}
+	_, err := w.WriteWithMode(context.Background(), records, gsyncx.WriteMode("unsupported"))
+	if err == nil {
+		t.Error("expected error for unsupported write mode with nil datasource")
+	}
+}
+
+func TestDatabaseWriter_Write_DefaultModeFromConfig(t *testing.T) {
+	w := NewDatabaseWriterWithConfig(nil, gsyncx.WriterConfig{
+		TableName: "users",
+		WriteMode: gsyncx.WriteModeInsert,
+	}, nil)
+
+	records := []gsyncx.Record{
+		{Data: map[string]interface{}{"id": 1}},
+	}
+	_, err := w.Write(context.Background(), records)
+	if err == nil {
+		t.Error("expected error for nil datasource")
 	}
 }

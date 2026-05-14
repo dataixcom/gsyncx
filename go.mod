@@ -5,6 +5,7 @@ go 1.25.0
 require (
 	github.com/alicebob/miniredis/v2 v2.37.0
 	github.com/dataixcom/gdbx v0.0.5
+	github.com/mattn/go-sqlite3 v1.14.44
 	github.com/redis/go-redis/v9 v9.18.0
 	github.com/yuin/gopher-lua v1.1.2
 )
