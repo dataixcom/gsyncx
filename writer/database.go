@@ -35,7 +35,11 @@ func (w *DatabaseWriter) Write(ctx context.Context, records []gsyncx.Record) (gs
 	if len(records) == 0 {
 		return gsyncx.WriteResult{}, nil
 	}
-	return w.WriteWithMode(ctx, records, gsyncx.WriteModeUpsert)
+	mode := w.cfg.WriteMode
+	if mode == "" {
+		mode = gsyncx.WriteModeUpsert
+	}
+	return w.WriteWithMode(ctx, records, mode)
 }
 
 func (w *DatabaseWriter) WriteWithMode(ctx context.Context, records []gsyncx.Record, mode gsyncx.WriteMode) (gsyncx.WriteResult, error) {

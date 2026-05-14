@@ -1333,3 +1333,258 @@ func TestSyncEngine_StopBeforeRun(t *testing.T) {
 		t.Errorf("expected cancelled, got %s", progress.Status)
 	}
 }
+
+func TestSyncEngine_RecordChannelClosedBeforeErrChannel(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithSyncMode(gsyncx.SyncModeFull),
+		gsyncx.WithBatchSize(100),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "source"}),
+		gsyncx.WithWriterConfig(gsyncx.WriterConfig{TableName: "target", WriteMode: gsyncx.WriteModeUpsert}),
+	)
+
+	rd := &mockReader{
+		records: [][]gsyncx.Record{
+			{{Data: map[string]interface{}{"id": 1}}},
+			{{Data: map[string]interface{}{"id": 2}}},
+			{{Data: map[string]interface{}{"id": 3}}},
+		},
+		count: 3,
+	}
+	wr := &mockWriter{writeResult: gsyncx.WriteResult{SuccessCount: 1}}
+
+	eng, _ := NewSyncEngine(cfg,
+		WithReader(rd),
+		WithWriter(wr),
+		WithLogger(gsyncx.NewNopLogger()),
+	)
+
+	result, err := eng.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != gsyncx.StatusCompleted {
+		t.Errorf("expected completed, got %s", result.Status)
+	}
+	if result.TotalRead != 3 {
+		t.Errorf("expected 3 total read, got %d", result.TotalRead)
+	}
+}
+
+func TestSyncEngine_WriteModeFromConfig(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithSyncMode(gsyncx.SyncModeFull),
+		gsyncx.WithBatchSize(100),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "source"}),
+		gsyncx.WithWriterConfig(gsyncx.WriterConfig{TableName: "target", WriteMode: gsyncx.WriteModeInsert}),
+	)
+
+	rd := &mockReader{
+		records: [][]gsyncx.Record{{{Data: map[string]interface{}{"id": 1}}}},
+		count:   1,
+	}
+	wr := &mockWriter{writeResult: gsyncx.WriteResult{SuccessCount: 1}}
+
+	eng, _ := NewSyncEngine(cfg,
+		WithReader(rd),
+		WithWriter(wr),
+		WithLogger(gsyncx.NewNopLogger()),
+	)
+
+	result, err := eng.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != gsyncx.StatusCompleted {
+		t.Errorf("expected completed, got %s", result.Status)
+	}
+}
+
+func TestSyncEngine_CheckpointSaved(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithSyncMode(gsyncx.SyncModeFull),
+		gsyncx.WithBatchSize(100),
+		gsyncx.WithCheckpoint(true, ""),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "source"}),
+		gsyncx.WithWriterConfig(gsyncx.WriterConfig{TableName: "target", WriteMode: gsyncx.WriteModeUpsert}),
+	)
+
+	rd := &mockReader{
+		records: [][]gsyncx.Record{{{Data: map[string]interface{}{"id": 1}}}},
+		count:   1,
+	}
+	wr := &mockWriter{writeResult: gsyncx.WriteResult{SuccessCount: 1}}
+	cpStore := checkpoint.NewMemoryCheckpointStore()
+
+	eng, _ := NewSyncEngine(cfg,
+		WithReader(rd),
+		WithWriter(wr),
+		WithCheckpointStore(cpStore),
+		WithLogger(gsyncx.NewNopLogger()),
+	)
+
+	result, err := eng.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != gsyncx.StatusCompleted {
+		t.Errorf("expected completed, got %s", result.Status)
+	}
+
+	cp, err := cpStore.Load(context.Background(), "source")
+	if err != nil {
+		t.Fatalf("unexpected error loading checkpoint: %v", err)
+	}
+	if cp == nil {
+		t.Error("expected checkpoint to be saved")
+	}
+	if cp.TableName != "source" {
+		t.Errorf("expected checkpoint table name 'source', got '%s'", cp.TableName)
+	}
+}
+
+func TestSyncEngine_CheckpointNotSavedWhenDisabled(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithSyncMode(gsyncx.SyncModeFull),
+		gsyncx.WithBatchSize(100),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "source"}),
+		gsyncx.WithWriterConfig(gsyncx.WriterConfig{TableName: "target", WriteMode: gsyncx.WriteModeUpsert}),
+	)
+
+	rd := &mockReader{
+		records: [][]gsyncx.Record{{{Data: map[string]interface{}{"id": 1}}}},
+		count:   1,
+	}
+	wr := &mockWriter{writeResult: gsyncx.WriteResult{SuccessCount: 1}}
+	cpStore := checkpoint.NewMemoryCheckpointStore()
+
+	eng, _ := NewSyncEngine(cfg,
+		WithReader(rd),
+		WithWriter(wr),
+		WithCheckpointStore(cpStore),
+		WithLogger(gsyncx.NewNopLogger()),
+	)
+
+	result, err := eng.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != gsyncx.StatusCompleted {
+		t.Errorf("expected completed, got %s", result.Status)
+	}
+
+	cp, _ := cpStore.Load(context.Background(), "source")
+	if cp != nil {
+		t.Error("expected no checkpoint when checkpoint is disabled")
+	}
+}
+
+func TestSyncEngine_IncrementalCheckpoint(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithSyncMode(gsyncx.SyncModeIncremental),
+		gsyncx.WithBatchSize(100),
+		gsyncx.WithCheckpoint(true, ""),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "source"}),
+		gsyncx.WithWriterConfig(gsyncx.WriterConfig{TableName: "target", WriteMode: gsyncx.WriteModeUpsert}),
+		gsyncx.WithIncrementalField(&gsyncx.Field{FieldName: "updated_at"}, gsyncx.StrategyTimestamp),
+	)
+
+	rd := &mockReader{
+		records: [][]gsyncx.Record{{{Data: map[string]interface{}{"id": 1}}}},
+		count:   1,
+	}
+	wr := &mockWriter{writeResult: gsyncx.WriteResult{SuccessCount: 1}}
+	cpStore := checkpoint.NewMemoryCheckpointStore()
+
+	eng, _ := NewSyncEngine(cfg,
+		WithReader(rd),
+		WithWriter(wr),
+		WithCheckpointStore(cpStore),
+		WithLogger(gsyncx.NewNopLogger()),
+	)
+
+	result, err := eng.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.Status != gsyncx.StatusCompleted {
+		t.Errorf("expected completed, got %s", result.Status)
+	}
+
+	cp, err := cpStore.Load(context.Background(), "source")
+	if err != nil {
+		t.Fatalf("unexpected error loading checkpoint: %v", err)
+	}
+	if cp == nil {
+		t.Fatal("expected checkpoint to be saved")
+	}
+	if cp.FieldName != "updated_at" {
+		t.Errorf("expected checkpoint field name 'updated_at', got '%s'", cp.FieldName)
+	}
+}
+
+func TestSyncEngine_MultipleBatchesAllConsumed(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithSyncMode(gsyncx.SyncModeFull),
+		gsyncx.WithBatchSize(100),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "source"}),
+		gsyncx.WithWriterConfig(gsyncx.WriterConfig{TableName: "target", WriteMode: gsyncx.WriteModeUpsert}),
+	)
+
+	rd := &mockReader{
+		records: [][]gsyncx.Record{
+			{{Data: map[string]interface{}{"id": 1}}},
+			{{Data: map[string]interface{}{"id": 2}}},
+			{{Data: map[string]interface{}{"id": 3}}},
+			{{Data: map[string]interface{}{"id": 4}}},
+			{{Data: map[string]interface{}{"id": 5}}},
+		},
+		count: 5,
+	}
+	wr := &mockWriter{writeResult: gsyncx.WriteResult{SuccessCount: 1}}
+
+	eng, _ := NewSyncEngine(cfg,
+		WithReader(rd),
+		WithWriter(wr),
+		WithLogger(gsyncx.NewNopLogger()),
+	)
+
+	result, err := eng.Run(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if result.TotalRead != 5 {
+		t.Errorf("expected 5 total read, got %d", result.TotalRead)
+	}
+	if result.TotalWritten != 5 {
+		t.Errorf("expected 5 total written, got %d", result.TotalWritten)
+	}
+}
+
+func TestSyncEngine_ContextCancelledDuringProcessing(t *testing.T) {
+	cfg := gsyncx.NewSyncConfig(
+		gsyncx.WithSyncMode(gsyncx.SyncModeFull),
+		gsyncx.WithBatchSize(100),
+		gsyncx.WithReaderConfig(gsyncx.ReaderConfig{TableName: "source"}),
+		gsyncx.WithWriterConfig(gsyncx.WriterConfig{TableName: "target", WriteMode: gsyncx.WriteModeUpsert}),
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	rd := &mockReader{
+		records: [][]gsyncx.Record{{{Data: map[string]interface{}{"id": 1}}}},
+		count:   1,
+	}
+	wr := &mockWriter{writeResult: gsyncx.WriteResult{SuccessCount: 1}}
+
+	eng, _ := NewSyncEngine(cfg,
+		WithReader(rd),
+		WithWriter(wr),
+		WithLogger(gsyncx.NewNopLogger()),
+	)
+
+	cancel()
+	result, _ := eng.Run(ctx)
+	if result.Status != gsyncx.StatusCancelled {
+		t.Errorf("expected cancelled, got %s", result.Status)
+	}
+}

@@ -276,7 +276,8 @@ loop:
 			break loop
 		case batch, ok := <-recordCh:
 			if !ok {
-				break loop
+				recordCh = nil
+				break
 			}
 
 			for e.paused.Load() {
@@ -387,9 +388,14 @@ loop:
 			}
 			e.mu.Unlock()
 
+			if e.config.CheckpointEnabled && e.cpStore != nil {
+				e.saveCheckpoint(ctx, totalRead, totalWrite)
+			}
+
 		case err, ok := <-errCh:
 			if !ok {
-				break loop
+				errCh = nil
+				break
 			}
 			if err != nil {
 				result.Status = gsyncx.StatusFailed
@@ -397,6 +403,10 @@ loop:
 				result.EndTime = time.Now()
 				return result, err
 			}
+			errCh = nil
+		}
+
+		if recordCh == nil && errCh == nil {
 			break loop
 		}
 	}
@@ -598,5 +608,36 @@ func (e *SyncEngine) injectWriterConfig() {
 	}
 	if injector, ok := e.writer.(writerConfigInjector); ok {
 		injector.SetConfig(e.config.WriterConfig)
+	}
+}
+
+func (e *SyncEngine) saveCheckpoint(ctx context.Context, totalRead, totalWrite int64) {
+	tableName := e.config.ReaderConfig.TableName
+	if tableName == "" {
+		return
+	}
+
+	cp := &gsyncx.Checkpoint{
+		TableName:    tableName,
+		FieldName:    "",
+		LastSyncTime: time.Now(),
+		BatchNum:     int(totalWrite / int64(e.config.BatchSize)),
+	}
+
+	if e.config.IncrementalField != nil {
+		cp.FieldName = e.config.IncrementalField.GetFieldName()
+	}
+
+	if err := e.cpStore.Save(ctx, cp); err != nil {
+		e.logger.Warn("failed to save checkpoint",
+			gsyncx.F("table", tableName),
+			gsyncx.F("error", err),
+		)
+	}
+
+	if err := e.cpStore.SaveProgress(ctx, e.progress); err != nil {
+		e.logger.Warn("failed to save progress",
+			gsyncx.F("error", err),
+		)
 	}
 }
