@@ -303,9 +303,9 @@ func TestTaskConfig_Validate_MissingJobID(t *testing.T) {
 
 func TestTaskConfig_Validate_MissingJobName(t *testing.T) {
 	cfg := &TaskConfig{
-		JobID:   "test-001",
-		Reader:  ReaderConfig{Type: "database"},
-		Writer:  WriterConfig{Type: "database"},
+		JobID:  "test-001",
+		Reader: ReaderConfig{Type: "database"},
+		Writer: WriterConfig{Type: "database"},
 	}
 
 	if err := cfg.Validate(); err == nil {
@@ -710,21 +710,21 @@ func TestTransformConfig_ToGdbxTransformConfig(t *testing.T) {
 
 func TestSettingConfig_ApplyToSyncConfig(t *testing.T) {
 	s := &SettingConfig{
-		SyncMode:         gsyncx.SyncModeFull,
-		BatchSize:        1000,
-		Parallelism:      4,
-		RetryMaxAttempts: 3,
-		RetryDelay:       5 * time.Second,
-		ContinueOnError:  true,
-		ErrorThreshold:   100,
-		PreviewMode:      true,
-		PreviewLimit:     10,
-		IntegrityCheck:   "count",
+		SyncMode:          gsyncx.SyncModeFull,
+		BatchSize:         1000,
+		Parallelism:       4,
+		RetryMaxAttempts:  3,
+		RetryDelay:        5 * time.Second,
+		ContinueOnError:   true,
+		ErrorThreshold:    100,
+		PreviewMode:       true,
+		PreviewLimit:      10,
+		IntegrityCheck:    "count",
 		CheckpointEnabled: true,
-		CheckpointPath:   "./checkpoints",
-		IncrementalField: &IncrementalFieldConfig{FieldName: "updated_at", Strategy: "timestamp"},
-		LastSyncTime:     "2024-01-01T00:00:00Z",
-		LastSyncValue:    100,
+		CheckpointPath:    "./checkpoints",
+		IncrementalField:  &IncrementalFieldConfig{FieldName: "updated_at", Strategy: "timestamp"},
+		LastSyncTime:      "2024-01-01T00:00:00Z",
+		LastSyncValue:     100,
 	}
 
 	cfg := gsyncx.NewSyncConfig()
@@ -859,10 +859,10 @@ func TestLoadTaskConfig_InvalidContent(t *testing.T) {
 
 func TestTaskConfig_Validate_WithTransform(t *testing.T) {
 	cfg := &TaskConfig{
-		JobID:   "test-001",
-		JobName: "Test",
-		Reader:  ReaderConfig{Type: "database", TableName: "t", DSNConfig: &DSNConfig{DBType: "mysql", Host: "localhost"}},
-		Writer:  WriterConfig{Type: "database", TableName: "t", DSNConfig: &DSNConfig{DBType: "mysql", Host: "localhost"}},
+		JobID:     "test-001",
+		JobName:   "Test",
+		Reader:    ReaderConfig{Type: "database", TableName: "t", DSNConfig: &DSNConfig{DBType: "mysql", Host: "localhost"}},
+		Writer:    WriterConfig{Type: "database", TableName: "t", DSNConfig: &DSNConfig{DBType: "mysql", Host: "localhost"}},
 		Transform: &TransformConfig{},
 	}
 
@@ -891,10 +891,10 @@ func TestTaskConfig_Validate_WithMapping(t *testing.T) {
 
 func TestTaskConfig_Validate_WithValidTransform(t *testing.T) {
 	cfg := &TaskConfig{
-		JobID:   "test-001",
-		JobName: "Test",
-		Reader:  ReaderConfig{Type: "database", TableName: "t", DSNConfig: &DSNConfig{DBType: "mysql", Host: "localhost"}},
-		Writer:  WriterConfig{Type: "database", TableName: "t", DSNConfig: &DSNConfig{DBType: "mysql", Host: "localhost"}},
+		JobID:     "test-001",
+		JobName:   "Test",
+		Reader:    ReaderConfig{Type: "database", TableName: "t", DSNConfig: &DSNConfig{DBType: "mysql", Host: "localhost"}},
+		Writer:    WriterConfig{Type: "database", TableName: "t", DSNConfig: &DSNConfig{DBType: "mysql", Host: "localhost"}},
 		Transform: &TransformConfig{Script: "function transform(r) return r end"},
 	}
 
