@@ -10,29 +10,29 @@ import (
 )
 
 type TaskConfig struct {
-	JobID      string            `json:"job_id"`
-	JobName    string            `json:"job_name"`
-	Version    string            `json:"version,omitempty"`
-	Reader     ReaderConfig      `json:"reader"`
-	Transform  *TransformConfig  `json:"transform,omitempty"`
-	Mapping    *MappingConfig    `json:"mapping,omitempty"`
-	Writer     WriterConfig      `json:"writer"`
-	Setting    *SettingConfig    `json:"setting,omitempty"`
-	Metadata   map[string]string `json:"metadata,omitempty"`
+	JobID     string            `json:"job_id"`
+	JobName   string            `json:"job_name"`
+	Version   string            `json:"version,omitempty"`
+	Reader    ReaderConfig      `json:"reader"`
+	Transform *TransformConfig  `json:"transform,omitempty"`
+	Mapping   *MappingConfig    `json:"mapping,omitempty"`
+	Writer    WriterConfig      `json:"writer"`
+	Setting   *SettingConfig    `json:"setting,omitempty"`
+	Metadata  map[string]string `json:"metadata,omitempty"`
 }
 
 type ReaderConfig struct {
-	Type       string                 `json:"type"`
-	DSNConfig  *DSNConfig             `json:"dsn_config,omitempty"`
-	TableName  string                 `json:"table_name,omitempty"`
-	Schema     string                 `json:"schema,omitempty"`
-	SQL        string                 `json:"sql,omitempty"`
-	WhereClause string                `json:"where_clause,omitempty"`
-	PrimaryKey *FieldConfig           `json:"primary_key,omitempty"`
-	Fields     []FieldConfig          `json:"fields,omitempty"`
-	RawFields  []string               `json:"raw_fields,omitempty"`
-	Redis      *RedisReaderConfig     `json:"redis,omitempty"`
-	Args       map[string]interface{} `json:"args,omitempty"`
+	Type        string                 `json:"type"`
+	DSNConfig   *DSNConfig             `json:"dsn_config,omitempty"`
+	TableName   string                 `json:"table_name,omitempty"`
+	Schema      string                 `json:"schema,omitempty"`
+	SQL         string                 `json:"sql,omitempty"`
+	WhereClause string                 `json:"where_clause,omitempty"`
+	PrimaryKey  *FieldConfig           `json:"primary_key,omitempty"`
+	Fields      []FieldConfig          `json:"fields,omitempty"`
+	RawFields   []string               `json:"raw_fields,omitempty"`
+	Redis       *RedisReaderConfig     `json:"redis,omitempty"`
+	Args        map[string]interface{} `json:"args,omitempty"`
 }
 
 type RedisReaderConfig struct {
@@ -64,23 +64,23 @@ type WriterConfig struct {
 }
 
 type TransformConfig struct {
-	Type       string            `json:"type,omitempty"`
-	Script     string            `json:"script,omitempty"`
-	ScriptPath string            `json:"script_path,omitempty"`
-	ScriptLang string            `json:"script_lang,omitempty"`
-	Timeout    time.Duration     `json:"timeout,omitempty"`
-	MaxMemory  int64             `json:"max_memory,omitempty"`
-	Env        map[string]string `json:"env,omitempty"`
+	Type         string            `json:"type,omitempty"`
+	Script       string            `json:"script,omitempty"`
+	ScriptPath   string            `json:"script_path,omitempty"`
+	ScriptLang   string            `json:"script_lang,omitempty"`
+	Timeout      time.Duration     `json:"timeout,omitempty"`
+	MaxMemory    int64             `json:"max_memory,omitempty"`
+	Env          map[string]string `json:"env,omitempty"`
 	FieldMapping map[string]string `json:"field_mapping,omitempty"`
 }
 
 type MappingConfig struct {
-	Mappings       []FieldMappingConfig `json:"mappings,omitempty"`
+	Mappings       []FieldMappingConfig   `json:"mappings,omitempty"`
 	DefaultValues  map[string]interface{} `json:"default_values,omitempty"`
-	IgnoreMissing  bool                 `json:"ignore_missing,omitempty"`
-	StrictMode     bool                 `json:"strict_mode,omitempty"`
-	ValidateOnLoad bool                 `json:"validate_on_load,omitempty"`
-	AutoMapping    bool                 `json:"auto_mapping,omitempty"`
+	IgnoreMissing  bool                   `json:"ignore_missing,omitempty"`
+	StrictMode     bool                   `json:"strict_mode,omitempty"`
+	ValidateOnLoad bool                   `json:"validate_on_load,omitempty"`
+	AutoMapping    bool                   `json:"auto_mapping,omitempty"`
 }
 
 type FieldMappingConfig struct {
@@ -110,21 +110,21 @@ type DSNConfig struct {
 }
 
 type SettingConfig struct {
-	SyncMode        gsyncx.SyncMode `json:"sync_mode,omitempty"`
-	BatchSize       int             `json:"batch_size,omitempty"`
-	Parallelism     int             `json:"parallelism,omitempty"`
-	RetryMaxAttempts int            `json:"retry_max_attempts,omitempty"`
-	RetryDelay      time.Duration   `json:"retry_delay,omitempty"`
-	ContinueOnError bool            `json:"continue_on_error,omitempty"`
-	ErrorThreshold  int             `json:"error_threshold,omitempty"`
-	PreviewMode     bool            `json:"preview_mode,omitempty"`
-	PreviewLimit    int             `json:"preview_limit,omitempty"`
-	IntegrityCheck  string          `json:"integrity_check,omitempty"`
-	CheckpointEnabled bool          `json:"checkpoint_enabled,omitempty"`
-	CheckpointPath  string          `json:"checkpoint_path,omitempty"`
-	IncrementalField *IncrementalFieldConfig `json:"incremental_field,omitempty"`
-	LastSyncTime    string          `json:"last_sync_time,omitempty"`
-	LastSyncValue   interface{}     `json:"last_sync_value,omitempty"`
+	SyncMode          gsyncx.SyncMode         `json:"sync_mode,omitempty"`
+	BatchSize         int                     `json:"batch_size,omitempty"`
+	Parallelism       int                     `json:"parallelism,omitempty"`
+	RetryMaxAttempts  int                     `json:"retry_max_attempts,omitempty"`
+	RetryDelay        time.Duration           `json:"retry_delay,omitempty"`
+	ContinueOnError   bool                    `json:"continue_on_error,omitempty"`
+	ErrorThreshold    int                     `json:"error_threshold,omitempty"`
+	PreviewMode       bool                    `json:"preview_mode,omitempty"`
+	PreviewLimit      int                     `json:"preview_limit,omitempty"`
+	IntegrityCheck    string                  `json:"integrity_check,omitempty"`
+	CheckpointEnabled bool                    `json:"checkpoint_enabled,omitempty"`
+	CheckpointPath    string                  `json:"checkpoint_path,omitempty"`
+	IncrementalField  *IncrementalFieldConfig `json:"incremental_field,omitempty"`
+	LastSyncTime      string                  `json:"last_sync_time,omitempty"`
+	LastSyncValue     interface{}             `json:"last_sync_value,omitempty"`
 }
 
 type IncrementalFieldConfig struct {
@@ -143,15 +143,15 @@ const (
 )
 
 type TaskResult struct {
-	JobID        string             `json:"job_id"`
-	JobName      string             `json:"job_name"`
-	Status       TaskStatus         `json:"status"`
-	SyncResult   *gsyncx.SyncResult `json:"sync_result,omitempty"`
-	Error        string             `json:"error,omitempty"`
-	StartTime    time.Time          `json:"start_time"`
-	EndTime      time.Time          `json:"end_time"`
-	Duration     time.Duration      `json:"duration"`
-	ConfigPath   string             `json:"config_path,omitempty"`
+	JobID      string             `json:"job_id"`
+	JobName    string             `json:"job_name"`
+	Status     TaskStatus         `json:"status"`
+	SyncResult *gsyncx.SyncResult `json:"sync_result,omitempty"`
+	Error      string             `json:"error,omitempty"`
+	StartTime  time.Time          `json:"start_time"`
+	EndTime    time.Time          `json:"end_time"`
+	Duration   time.Duration      `json:"duration"`
+	ConfigPath string             `json:"config_path,omitempty"`
 }
 
 func LoadTaskConfig(path string) (*TaskConfig, error) {
@@ -293,7 +293,7 @@ func (d *DSNConfig) ToGdbxDSN() gsyncx.DSNConfig {
 func (r *ReaderConfig) ToGdbxReaderConfig() gsyncx.ReaderConfig {
 	cfg := gsyncx.ReaderConfig{
 		TableName:   r.TableName,
-		Schema:      r.Schema,
+		Schema:      r.DSNConfig.Schema,
 		SQL:         r.SQL,
 		WhereClause: r.WhereClause,
 		RawFields:   r.RawFields,
@@ -319,7 +319,7 @@ func (r *ReaderConfig) ToGdbxReaderConfig() gsyncx.ReaderConfig {
 func (w *WriterConfig) ToGdbxWriterConfig() gsyncx.WriterConfig {
 	cfg := gsyncx.WriterConfig{
 		TableName:      w.TableName,
-		Schema:         w.Schema,
+		Schema:         w.DSNConfig.Schema,
 		BatchSize:      w.BatchSize,
 		UseTransaction: w.UseTransaction,
 		RawFields:      w.RawFields,
