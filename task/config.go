@@ -293,7 +293,6 @@ func (d *DSNConfig) ToGdbxDSN() gsyncx.DSNConfig {
 func (r *ReaderConfig) ToGdbxReaderConfig() gsyncx.ReaderConfig {
 	cfg := gsyncx.ReaderConfig{
 		TableName:   r.TableName,
-		Schema:      r.DSNConfig.Schema,
 		SQL:         r.SQL,
 		WhereClause: r.WhereClause,
 		RawFields:   r.RawFields,
@@ -301,6 +300,7 @@ func (r *ReaderConfig) ToGdbxReaderConfig() gsyncx.ReaderConfig {
 	if r.DSNConfig != nil {
 		dsn := r.DSNConfig.ToGdbxDSN()
 		cfg.DSNConfig = &dsn
+		cfg.Schema = r.DSNConfig.Schema
 	}
 	if r.PrimaryKey != nil {
 		pk := gsyncx.Field{FieldName: r.PrimaryKey.FieldName}
@@ -319,7 +319,6 @@ func (r *ReaderConfig) ToGdbxReaderConfig() gsyncx.ReaderConfig {
 func (w *WriterConfig) ToGdbxWriterConfig() gsyncx.WriterConfig {
 	cfg := gsyncx.WriterConfig{
 		TableName:      w.TableName,
-		Schema:         w.DSNConfig.Schema,
 		BatchSize:      w.BatchSize,
 		UseTransaction: w.UseTransaction,
 		RawFields:      w.RawFields,
@@ -327,6 +326,7 @@ func (w *WriterConfig) ToGdbxWriterConfig() gsyncx.WriterConfig {
 	if w.DSNConfig != nil {
 		dsn := w.DSNConfig.ToGdbxDSN()
 		cfg.DSNConfig = &dsn
+		cfg.Schema = w.DSNConfig.Schema
 	}
 	if w.WriteMode != "" {
 		cfg.WriteMode = gsyncx.WriteMode(w.WriteMode)
